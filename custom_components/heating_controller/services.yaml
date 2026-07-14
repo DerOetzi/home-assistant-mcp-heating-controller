@@ -1,0 +1,8 @@
+unblock:
+  name: Unblock
+  description: >-
+    Clear a manual-override block for one or more rooms and let automatic
+    comfort/eco selection resume.
+  target:
+    entity:
+      integration: heating_controller

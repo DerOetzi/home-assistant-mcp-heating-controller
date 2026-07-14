@@ -19,7 +19,7 @@ from ...const import LearningStatus
 from .models.capacity import ThermalCapacityModel
 from .models.loss import RoomLossModel
 from .results import RoomMpcInput
-from .types import LearningFactors, RoomModelLearningState, RoomModelPrediction
+from .types import LearningFactors, RoomModelLearningState
 
 HISTORY_RETENTION_S = 180 * 60
 MIN_HISTORY_SAMPLES = 5

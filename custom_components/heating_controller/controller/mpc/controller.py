@@ -76,6 +76,14 @@ class RoomMpcController:
     def destroy(self) -> None:
         self._learner.destroy()
 
+    @property
+    def learned_ua_factor(self) -> float:
+        return self._loss_model.learned_ua_factor
+
+    @property
+    def learned_capacity_factor(self) -> float:
+        return self._capacity_model.learned_capacity_factor
+
     def set_trv_temperature(self, index: int, value: float | None) -> None:
         self._sensors.set_trv_temperature(index, value)
 

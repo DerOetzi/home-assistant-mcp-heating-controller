@@ -60,8 +60,16 @@ class HeatingStateController:
     def set_comfort_condition(self, key: str, value: bool) -> None:
         self._comfort_conditions[key] = value
 
+    @property
+    def comfort_temperature_c(self) -> float:
+        return self._comfort_temperature_c
+
     def set_comfort_temperature(self, value: float) -> None:
         self._comfort_temperature_c = value
+
+    @property
+    def eco_temperature_offset_c(self) -> float:
+        return self._eco_temperature_offset_c
 
     def set_eco_temperature_offset(self, value: float) -> None:
         self._eco_temperature_offset_c = value
