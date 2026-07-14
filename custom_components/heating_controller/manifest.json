@@ -1,0 +1,12 @@
+{
+  "domain": "heating_controller",
+  "name": "Heating Controller",
+  "codeowners": ["@DerOetzi"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/DerOetzi/home-assistant-mcp-heating-controller",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/DerOetzi/home-assistant-mcp-heating-controller/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
