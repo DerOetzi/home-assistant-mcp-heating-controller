@@ -445,13 +445,3 @@ class HeatingRoomCoordinator:
     @property
     def is_automation_active(self) -> bool:
         return self.active and not self.blocked
-
-    @property
-    def status_text(self) -> str:
-        parts = ["Blocked" if self.blocked else "Automatic"]
-        parts.append(self.current_heat_mode.value.replace("_", " ").title())
-        if self.data[CONF_PV_BOOST_ENABLED] and self.state.is_pv_boost_active:
-            parts.append("PV boost")
-        if self.state.is_window_open:
-            parts.append("window open")
-        return " - ".join(parts)

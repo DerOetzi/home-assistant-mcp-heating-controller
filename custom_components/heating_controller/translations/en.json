@@ -166,9 +166,6 @@
       }
     },
     "sensor": {
-      "heating_status": {
-        "name": "Status"
-      },
       "min_flow_temperature": {
         "name": "Minimum flow temperature"
       },

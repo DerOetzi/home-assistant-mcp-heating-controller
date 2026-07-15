@@ -1,4 +1,4 @@
-"""Diagnostic sensors: status text + MPC demand/temperature/learning telemetry."""
+"""Diagnostic sensors: MPC demand/temperature/learning telemetry."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ async def async_setup_entry(
     coordinator: HeatingRoomCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
         [
-            HeatingStatusSensor(coordinator),
             MinFlowTemperatureSensor(coordinator),
             HeatingDemandSensor(coordinator),
             RequestedHeatingPowerSensor(coordinator),
@@ -38,17 +37,6 @@ async def async_setup_entry(
 
 class _DiagnosticSensor(HeatingControllerEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-
-class HeatingStatusSensor(_DiagnosticSensor):
-    _attr_translation_key = "heating_status"
-
-    def __init__(self, coordinator: HeatingRoomCoordinator) -> None:
-        super().__init__(coordinator, "heating_status")
-
-    @property
-    def native_value(self) -> str:
-        return self._coordinator.status_text
 
 
 class MinFlowTemperatureSensor(_DiagnosticSensor):
