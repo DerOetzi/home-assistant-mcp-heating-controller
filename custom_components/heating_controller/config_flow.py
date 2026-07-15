@@ -122,33 +122,61 @@ def _marker(key: type[vol.Marker], name: str, defaults: dict[str, Any]) -> vol.M
     return key(name)
 
 
+_BOOLEAN_SIGNAL_DOMAINS = ["binary_sensor", "input_boolean", "switch"]
+_WINDOW_DEVICE_CLASSES = ["window", "door", "garage_door", "opening"]
+
+
 def _entities_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             _marker(vol.Optional, CONF_ROOM_SENSOR_ENTITY, defaults): (
-                selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+                selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor", device_class="temperature"
+                    )
+                )
             ),
             vol.Optional(
                 CONF_WINDOW_CONTACT_ENTITIES,
                 default=defaults.get(CONF_WINDOW_CONTACT_ENTITIES, []),
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+                selector.EntitySelectorConfig(
+                    domain="binary_sensor",
+                    device_class=_WINDOW_DEVICE_CLASSES,
+                    multiple=True,
+                )
             ),
             vol.Required(
                 CONF_COMFORT_CONDITION_ENTITIES,
                 default=defaults.get(CONF_COMFORT_CONDITION_ENTITIES, []),
-            ): selector.EntitySelector(selector.EntitySelectorConfig(multiple=True)),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=_BOOLEAN_SIGNAL_DOMAINS + ["schedule"], multiple=True
+                )
+            ),
             _marker(vol.Required, CONF_OUTDOOR_TEMPERATURE_ENTITY, defaults): (
-                selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+                selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor", device_class="temperature"
+                    )
+                )
             ),
             _marker(vol.Required, CONF_FLOW_TEMPERATURE_ENTITY, defaults): (
-                selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+                selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor", device_class="temperature"
+                    )
+                )
             ),
             _marker(vol.Required, CONF_HEATING_AVAILABLE_ENTITY, defaults): (
-                selector.EntitySelector(selector.EntitySelectorConfig())
+                selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=_BOOLEAN_SIGNAL_DOMAINS)
+                )
             ),
             _marker(vol.Required, CONF_PV_BOOST_ENTITY, defaults): (
-                selector.EntitySelector(selector.EntitySelectorConfig())
+                selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=_BOOLEAN_SIGNAL_DOMAINS)
+                )
             ),
         }
     )
