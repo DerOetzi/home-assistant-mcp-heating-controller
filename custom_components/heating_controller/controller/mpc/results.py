@@ -12,7 +12,6 @@ from .types import RoomModelLearningState
 class RoomMpcErrorCode(StrEnum):
     MISSING_ROOM_TEMPERATURE = "missing_room_temperature"
     MISSING_OUTDOOR_TEMPERATURE = "missing_outdoor_temperature"
-    NO_HEATING_POWER_AVAILABLE = "no_heating_power_available"
 
 
 @dataclass
@@ -28,6 +27,7 @@ class RoomTemperatureResult:
     temperature_c: float | None = None
     used_strategy: RoomTemperatureStrategy | None = None
     trv_temperatures: list[float | None] | None = None
+    room_sensor_temp_c: float | None = None
     error: RoomMpcError | None = None
 
 
@@ -40,6 +40,7 @@ class RoomMpcInput:
     used_room_sensor_strategy: RoomTemperatureStrategy
     trv_temperatures: list[float | None]
     flow_temp_c: float | None = None
+    room_sensor_temp_c: float | None = None
 
 
 @dataclass

@@ -181,6 +181,7 @@ class RoomMpcSensors:
                 temperature_c=room_sensor_temperature,
                 used_strategy=RoomTemperatureStrategy.ROOM_SENSOR,
                 trv_temperatures=trv_temperatures,
+                room_sensor_temp_c=room_sensor_temperature,
             )
 
         valid_trv_temperatures = [t for t in trv_temperatures if t is not None]
@@ -200,6 +201,7 @@ class RoomMpcSensors:
             temperature_c=average_temperature,
             used_strategy=RoomTemperatureStrategy.TRV_AVERAGE,
             trv_temperatures=trv_temperatures,
+            room_sensor_temp_c=room_sensor_temperature,
         )
 
     def create_input(
@@ -231,5 +233,6 @@ class RoomMpcSensors:
                 flow_temp_c=self._flow_temperature_sensor.get_fresh_value(now_ts),
                 used_room_sensor_strategy=room_temperature_result.used_strategy,
                 trv_temperatures=room_temperature_result.trv_temperatures,
+                room_sensor_temp_c=room_temperature_result.room_sensor_temp_c,
             ),
         )

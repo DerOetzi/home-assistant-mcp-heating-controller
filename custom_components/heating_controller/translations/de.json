@@ -175,8 +175,17 @@
       "heating_demand": {
         "name": "Heizleistungsanforderung"
       },
+      "requested_heating_power": {
+        "name": "Angeforderte Heizleistung"
+      },
+      "available_heating_power": {
+        "name": "Verfügbare Heizleistung"
+      },
       "room_temperature": {
         "name": "Raumtemperatur"
+      },
+      "base_temperature": {
+        "name": "Basistemperatur"
       },
       "mpc_learning_status": {
         "name": "MPC-Lernstatus",

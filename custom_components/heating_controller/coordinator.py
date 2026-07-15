@@ -438,6 +438,11 @@ class HeatingRoomCoordinator:
         return self.state.resolve_display_mode()
 
     @property
+    def base_temperature_c(self) -> float:
+        """Target temperature for the current heat mode, before PV-boost."""
+        return self.state.determine_base_target_temperature(self.current_heat_mode)
+
+    @property
     def is_automation_active(self) -> bool:
         return self.active and not self.blocked
 

@@ -16,12 +16,12 @@ from .models.emitter import HeatEmitterModel
 from .models.loss import RoomLossModel
 from .results import (
     RoomMpcError,
-    RoomMpcErrorCode,
     RoomMpcInput,
     RoomMpcResult,
+    RoomTemperatureResult,
 )
 from .sensors import RoomMpcSensors
-from .types import LearningFactors, RoomThermalConfig, TrvConfig
+from .types import LearningFactors, RoomModelLearningState, RoomThermalConfig, TrvConfig
 
 MPC_PREDICTION_HORIZON_S = 1800
 MPC_SIMULATION_STEP_S = 150
@@ -84,6 +84,17 @@ class RoomMpcController:
     def learned_capacity_factor(self) -> float:
         return self._capacity_model.learned_capacity_factor
 
+    def get_room_temperature_result(self) -> RoomTemperatureResult:
+        """Current room temperature determination, independent of whether a
+        full demand computation succeeds (e.g. still available while heating
+        is unavailable or no positive heating power exists)."""
+        return self._sensors.get_room_temperature()
+
+    def get_learning_state(self) -> RoomModelLearningState:
+        """Current learner state, independent of whether the last compute()
+        cycle produced a full result."""
+        return self._learner.get_learning_state()
+
     def set_trv_temperature(self, index: int, value: float | None) -> None:
         self._sensors.set_trv_temperature(index, value)
 
@@ -103,21 +114,18 @@ class RoomMpcController:
 
         mpc_input = input_result.input
 
-        available_heating_power_w = self._emitter_model.calculate_available_heating_power_w(
-            mpc_input.room_temp_c, mpc_input.flow_temp_c
+        # Zero (or negative, e.g. room already warmer than the emitter's mean
+        # temperature) is a normal, valid outcome — not an error: it just
+        # means no positive heating power is currently achievable, and the
+        # demand search below naturally converges on 0% in that case. This
+        # keeps demand/power/flow-temperature sensors reporting 0 instead of
+        # going unavailable whenever heating is off or not needed.
+        available_heating_power_w = max(
+            0.0,
+            self._emitter_model.calculate_available_heating_power_w(
+                mpc_input.room_temp_c, mpc_input.flow_temp_c
+            ),
         )
-
-        if available_heating_power_w <= 0:
-            return RoomMpcComputeResult(
-                valid=False,
-                error=RoomMpcError(
-                    code=RoomMpcErrorCode.NO_HEATING_POWER_AVAILABLE,
-                    message=(
-                        "No heating power available at current room and flow "
-                        "temperatures"
-                    ),
-                ),
-            )
 
         optimal_demand = self._find_optimal_demand_prediction(mpc_input)
         stabilized_demand_pct = self._apply_demand_rate_limiting(

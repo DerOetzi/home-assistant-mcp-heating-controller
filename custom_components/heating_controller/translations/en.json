@@ -175,8 +175,17 @@
       "heating_demand": {
         "name": "Heating demand"
       },
+      "requested_heating_power": {
+        "name": "Requested heating power"
+      },
+      "available_heating_power": {
+        "name": "Available heating power"
+      },
       "room_temperature": {
         "name": "Room temperature"
+      },
+      "base_temperature": {
+        "name": "Base temperature"
       },
       "mpc_learning_status": {
         "name": "MPC learning status",

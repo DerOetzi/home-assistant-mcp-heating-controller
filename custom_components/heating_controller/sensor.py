@@ -7,7 +7,7 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfTemperature
+from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfPower, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -25,7 +25,10 @@ async def async_setup_entry(
             HeatingStatusSensor(coordinator),
             MinFlowTemperatureSensor(coordinator),
             HeatingDemandSensor(coordinator),
+            RequestedHeatingPowerSensor(coordinator),
+            AvailableHeatingPowerSensor(coordinator),
             RoomTemperatureSensor(coordinator),
+            BaseTemperatureSensor(coordinator),
             MpcLearningStatusSensor(coordinator),
             UaFactorSensor(coordinator),
             CapacityFactorSensor(coordinator),
@@ -62,16 +65,6 @@ class MinFlowTemperatureSensor(_DiagnosticSensor):
         result = self._coordinator.last_result
         return result.recommended_flow_temperature_c if result else None
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        result = self._coordinator.last_result
-        if result is None:
-            return {}
-        trv_entity_ids = self._coordinator.trv_entity_ids
-        return {
-            "trv_target_temps": dict(zip(trv_entity_ids, result.trv_targets, strict=True))
-        }
-
 
 class HeatingDemandSensor(_DiagnosticSensor):
     _attr_translation_key = "heating_demand"
@@ -91,10 +84,40 @@ class HeatingDemandSensor(_DiagnosticSensor):
         result = self._coordinator.last_result
         if result is None:
             return {}
+        trv_entity_ids = self._coordinator.trv_entity_ids
         return {
-            "requested_heating_power_w": result.requested_heating_power_w,
-            "available_heating_power_w": result.available_heating_power_w,
+            "trv_target_temps": dict(zip(trv_entity_ids, result.trv_targets, strict=True))
         }
+
+
+class RequestedHeatingPowerSensor(_DiagnosticSensor):
+    _attr_translation_key = "requested_heating_power"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+
+    def __init__(self, coordinator: HeatingRoomCoordinator) -> None:
+        super().__init__(coordinator, "requested_heating_power")
+
+    @property
+    def native_value(self) -> float | None:
+        result = self._coordinator.last_result
+        return result.requested_heating_power_w if result else None
+
+
+class AvailableHeatingPowerSensor(_DiagnosticSensor):
+    _attr_translation_key = "available_heating_power"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+
+    def __init__(self, coordinator: HeatingRoomCoordinator) -> None:
+        super().__init__(coordinator, "available_heating_power")
+
+    @property
+    def native_value(self) -> float | None:
+        result = self._coordinator.last_result
+        return result.available_heating_power_w if result else None
 
 
 class RoomTemperatureSensor(_DiagnosticSensor):
@@ -108,21 +131,36 @@ class RoomTemperatureSensor(_DiagnosticSensor):
 
     @property
     def native_value(self) -> float | None:
-        result = self._coordinator.last_result
-        return result.input.room_temp_c if result else None
+        result = self._coordinator.mpc.get_room_temperature_result()
+        return result.temperature_c if result.valid else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        result = self._coordinator.last_result
-        if result is None:
+        result = self._coordinator.mpc.get_room_temperature_result()
+        if not result.valid:
             return {}
         trv_entity_ids = self._coordinator.trv_entity_ids
         return {
-            "used_strategy": result.input.used_room_sensor_strategy,
+            "used_strategy": result.used_strategy,
+            "room_sensor_temp_c": result.room_sensor_temp_c,
             "trv_temperatures": dict(
-                zip(trv_entity_ids, result.input.trv_temperatures, strict=True)
+                zip(trv_entity_ids, result.trv_temperatures, strict=True)
             ),
         }
+
+
+class BaseTemperatureSensor(_DiagnosticSensor):
+    _attr_translation_key = "base_temperature"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    def __init__(self, coordinator: HeatingRoomCoordinator) -> None:
+        super().__init__(coordinator, "base_temperature")
+
+    @property
+    def native_value(self) -> float:
+        return self._coordinator.base_temperature_c
 
 
 class MpcLearningStatusSensor(_DiagnosticSensor):
@@ -134,21 +172,16 @@ class MpcLearningStatusSensor(_DiagnosticSensor):
         self._attr_options = ["learned", "disabled", "skipped", "suppressed", "waiting_interval"]
 
     @property
-    def native_value(self) -> str | None:
-        result = self._coordinator.last_result
-        if result is None or result.learning_state is None:
-            return None
-        return result.learning_state.status.value
+    def native_value(self) -> str:
+        return self._coordinator.mpc.get_learning_state().status.value
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        result = self._coordinator.last_result
-        if result is None or result.learning_state is None:
-            return {}
-        prediction = result.learning_state.prediction
+        learning_state = self._coordinator.mpc.get_learning_state()
+        prediction = learning_state.prediction
         return {
             "prediction": asdict(prediction) if prediction else None,
-            "applied_heating_power_w": result.learning_state.applied_heating_power_w,
+            "applied_heating_power_w": learning_state.applied_heating_power_w,
         }
 
 
