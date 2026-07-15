@@ -145,7 +145,7 @@ class HeatingRoomCoordinator:
             max_sensor_age_s=self.data[CONF_MAX_SENSOR_AGE],
         )
 
-        self.store = LearningFactorsStore(hass, entry.entry_id)
+        self.store = LearningFactorsStore(hass, self.room_name, entry.entry_id)
 
         self.active = True
         self.blocked = False
@@ -237,8 +237,8 @@ class HeatingRoomCoordinator:
     async def _async_import_legacy_learning_factors(self) -> None:
         """One-time import of learning factors from a prior setup, if present."""
         slug = slugify(self.room_name)
-        ua_state = self.hass.states.get(f"text.ua_factor_{slug}")
-        capacity_state = self.hass.states.get(f"text.capacity_factor_{slug}")
+        ua_state = self.hass.states.get(f"text.{slug}_ua_factor")
+        capacity_state = self.hass.states.get(f"text.{slug}_capacity_factor")
         if ua_state is None or capacity_state is None:
             return
 

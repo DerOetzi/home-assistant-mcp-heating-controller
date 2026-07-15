@@ -142,3 +142,29 @@ async def test_heating_unavailable_disables_learning(hass: HomeAssistant) -> Non
     assert coordinator.mpc._learner._enabled is False
 
     coordinator.async_unload()
+
+
+async def test_legacy_learning_factors_imported_from_room_prefixed_text_entities(
+    hass: HomeAssistant,
+) -> None:
+    """Legacy entities are named <room>_ua_factor / <room>_capacity_factor
+    (room-prefixed), not ua_factor_<room> — this pins that exact order."""
+    _seed_entities(hass)
+    hass.states.async_set("text.wohnzimmer_ua_factor", "0.9982289915877139")
+    hass.states.async_set("text.wohnzimmer_capacity_factor", "1.0074397084454827")
+
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+
+    coordinator = HeatingRoomCoordinator(hass, entry)
+    _register_fake_climate_set_temperature(hass)
+    await coordinator.async_setup()
+
+    assert coordinator.mpc.learned_ua_factor == 0.9982289915877139
+    assert coordinator.mpc.learned_capacity_factor == 1.0074397084454827
+
+    saved = await coordinator.store.async_load()
+    assert saved.ua_factor == 0.9982289915877139
+    assert saved.capacity_factor == 1.0074397084454827
+
+    coordinator.async_unload()

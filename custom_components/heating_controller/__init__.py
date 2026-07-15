@@ -7,8 +7,9 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import entity_registry as er, target
 
-from .const import DOMAIN, SERVICE_UNBLOCK
+from .const import CONF_ROOM_NAME, DOMAIN, SERVICE_UNBLOCK
 from .coordinator import HeatingRoomCoordinator
+from .store import LearningFactorsStore
 
 __all__ = ["DOMAIN"]
 
@@ -46,6 +47,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the room's learning-factor storage file along with its entry."""
+    store = LearningFactorsStore(hass, entry.data[CONF_ROOM_NAME], entry.entry_id)
+    await store.async_remove()
 
 
 def _async_register_services(hass: HomeAssistant) -> None:

@@ -37,3 +37,30 @@ async def test_setup_entry_registers_service_and_entities(hass: HomeAssistant) -
     assert coordinator.is_automation_active is True
 
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_remove_entry_deletes_learning_factors_store(hass: HomeAssistant) -> None:
+    _seed_entities(hass)
+
+    async def climate_handler(call: ServiceCall) -> None:
+        pass
+
+    hass.services.async_register("climate", "set_temperature", climate_handler)
+
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    from heating_controller.controller.mpc.types import LearningFactors
+
+    await coordinator.store.async_save(LearningFactors(ua_factor=1.1, capacity_factor=1.2))
+    assert await coordinator.store.async_load() is not None
+
+    assert await hass.config_entries.async_remove(entry.entry_id)
+
+    from heating_controller.store import LearningFactorsStore
+
+    leftover_store = LearningFactorsStore(hass, ENTRY_DATA["room_name"], entry.entry_id)
+    assert await leftover_store.async_load() is None
