@@ -1,5 +1,3 @@
-"""Room heat-loss (UA) model."""
-
 from __future__ import annotations
 
 from ..math_helper import clamp
@@ -10,8 +8,6 @@ MAX_LEARNED_UA_FACTOR = 2.0
 
 
 class RoomLossModel:
-    """Linear UA (W/K) heat-loss model, scaled by a learned correction factor."""
-
     def __init__(self, config: RoomThermalConfig) -> None:
         self._learned_ua_factor = 1.0
 

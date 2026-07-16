@@ -1,5 +1,3 @@
-"""binary_sensor.heating_automation_<room> — automatic mode active/blocked."""
-
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import (

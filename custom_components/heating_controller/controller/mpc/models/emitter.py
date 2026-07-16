@@ -1,11 +1,3 @@
-"""Per-TRV heat-emitter model.
-
-Converts a 0-100% demand into per-TRV target temperatures, and converts
-room/flow temperatures into available heating power, using EN 442 panel
-radiator exponents/reference power tables (or a flat nominal power for towel
-rails), weighted by each emitter's share of total design power.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -22,6 +14,8 @@ RADIATOR_EXPONENTS: dict[PanelRadiatorType, float] = {
     PanelRadiatorType.TYPE_22: 1.35,
     PanelRadiatorType.TYPE_33: 1.4,
 }
+
+DEFAULT_EMITTER_EXPONENT = 1.3
 
 PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER: dict[int, dict[PanelRadiatorType, float]] = {
     300: {
@@ -48,10 +42,14 @@ PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER: dict[int, dict[PanelRadiatorType, fl
 }
 
 MIN_ACTIVE_TRV_TEMPERATURE_C = 18.0
-
-INFINITE_LOOP_GUARD = 20
+MIN_ACTIVE_DEMAND = 0.05
 
 DISTRIBUTION_ALPHA = 0.7
+
+FLOW_SEARCH_MIN_C = 20.0
+FLOW_SEARCH_MAX_C = 75.0
+FLOW_SEARCH_PRECISION_C = 0.1
+FLOW_SEARCH_ROUND_STEP_C = 0.5
 
 
 @dataclass
@@ -79,8 +77,6 @@ class _PreparedEmitter:
 
 
 class HeatEmitterModel:
-    """Per-room collection of 1-3 TRVs and their heat-emitter curves."""
-
     def __init__(self, thermal_config: RoomThermalConfig, trvs: list[TrvConfig]) -> None:
         self._design_temperatures = DESIGN_SYSTEM_TEMPERATURES[
             thermal_config.design_temperature_system
@@ -104,7 +100,7 @@ class HeatEmitterModel:
     def _get_emitter_exponent(trv: TrvConfig) -> float:
         if trv.emitter_type == HeatEmitterType.PANEL:
             return RADIATOR_EXPONENTS[trv.radiator_type or PanelRadiatorType.TYPE_22]
-        return 1.3
+        return DEFAULT_EMITTER_EXPONENT
 
     def _calculate_emitter_table_reference_power_w(self, trv: TrvConfig) -> float:
         if trv.emitter_type == HeatEmitterType.PANEL:
@@ -126,47 +122,33 @@ class HeatEmitterModel:
         height_mm: float, radiator_type: PanelRadiatorType
     ) -> float:
         available_heights = sorted(PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER.keys())
-        if not available_heights:
-            return 0
-
-        if height_mm in available_heights:
-            return PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[height_mm].get(
-                radiator_type, 0
-            )
 
         if height_mm <= available_heights[0]:
             return PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[
                 available_heights[0]
             ].get(radiator_type, 0)
 
-        last_index = len(available_heights) - 1
-        if height_mm >= available_heights[last_index]:
+        if height_mm >= available_heights[-1]:
             return PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[
-                available_heights[last_index]
+                available_heights[-1]
             ].get(radiator_type, 0)
 
-        lower_height = available_heights[0]
-        upper_height = available_heights[last_index]
-        for i in range(last_index):
-            current_height = available_heights[i]
-            next_height = available_heights[i + 1]
-            if current_height < height_mm < next_height:
-                lower_height = current_height
-                upper_height = next_height
-                break
+        for lower_height, upper_height in zip(
+            available_heights, available_heights[1:]
+        ):
+            if lower_height <= height_mm <= upper_height:
+                lower_power = PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[
+                    lower_height
+                ].get(radiator_type, 0)
+                upper_power = PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[
+                    upper_height
+                ].get(radiator_type, 0)
+                interpolation_factor = (height_mm - lower_height) / (
+                    upper_height - lower_height
+                )
+                return lower_power + (upper_power - lower_power) * interpolation_factor
 
-        lower_power = PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[lower_height].get(
-            radiator_type, 0
-        )
-        upper_power = PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[upper_height].get(
-            radiator_type, 0
-        )
-
-        if lower_height == upper_height:
-            return lower_power
-
-        interpolation_factor = (height_mm - lower_height) / (upper_height - lower_height)
-        return lower_power + (upper_power - lower_power) * interpolation_factor
+        return 0
 
     def _convert_reference_power_to_design_system(
         self, table_reference_power_w: float, exponent: float
@@ -202,28 +184,31 @@ class HeatEmitterModel:
     def calculate_available_heating_power_w(
         self, room_temperature_c: float, flow_temperature_c: float | None = None
     ) -> float:
-        total = 0.0
-        for emitter in self._emitters:
-            effective_flow_temperature_c = (
-                flow_temperature_c
-                if flow_temperature_c is not None
-                else self._design_temperatures.flow_temperature_c
+        effective_flow_temperature_c = (
+            flow_temperature_c
+            if flow_temperature_c is not None
+            else self._design_temperatures.flow_temperature_c
+        )
+        return_temperature_c = (
+            effective_flow_temperature_c - self._design_temperatures.spread_c
+        )
+        current_mean_temperature_c = (
+            effective_flow_temperature_c + return_temperature_c
+        ) / 2
+        current_overtemperature_c = current_mean_temperature_c - room_temperature_c
+
+        if current_overtemperature_c <= 0:
+            return 0.0
+
+        total = sum(
+            emitter.design_reference_power_w
+            * (
+                current_overtemperature_c
+                / self._design_temperatures.overtemperature_c
             )
-            return_temperature_c = (
-                effective_flow_temperature_c - self._design_temperatures.spread_c
-            )
-            current_mean_temperature_c = (
-                effective_flow_temperature_c + return_temperature_c
-            ) / 2
-            current_overtemperature_c = current_mean_temperature_c - room_temperature_c
-
-            if current_overtemperature_c <= 0:
-                continue
-
-            total += emitter.design_reference_power_w * (
-                current_overtemperature_c / self._design_temperatures.overtemperature_c
-            ) ** emitter.exponent
-
+            ** emitter.exponent
+            for emitter in self._emitters
+        )
         return round_to_step(total, 0.01)
 
     def calculate_target_temperatures(self, demand_pct: float) -> list[float]:
@@ -233,7 +218,7 @@ class HeatEmitterModel:
     @staticmethod
     def _calculate_target_temperature(emitter: _PreparedEmitter, demand: float) -> float:
         trv = emitter.trv
-        if demand < 0.05:
+        if demand < MIN_ACTIVE_DEMAND:
             return trv.min_target_temperature_c
 
         weighted_demand = clamp(demand * emitter.distribution_weight, 0, 1)
@@ -258,8 +243,7 @@ class HeatEmitterModel:
         if required_heating_power_w <= 0:
             return 0.0
 
-        low, high = 20.0, 75.0
-        optimal_flow = high
+        low, high = FLOW_SEARCH_MIN_C, FLOW_SEARCH_MAX_C
 
         if (
             self.calculate_available_heating_power_w(target_room_temperature_c, high)
@@ -267,8 +251,8 @@ class HeatEmitterModel:
         ):
             return high
 
-        iterations = 0
-        while high - low > 0.1:
+        optimal_flow = high
+        while high - low > FLOW_SEARCH_PRECISION_C:
             mid = (low + high) / 2
             available_power_w = self.calculate_available_heating_power_w(
                 target_room_temperature_c, mid
@@ -279,8 +263,4 @@ class HeatEmitterModel:
             else:
                 low = mid
 
-            iterations += 1
-            if iterations > INFINITE_LOOP_GUARD:
-                break
-
-        return ceil(optimal_flow / 0.5) * 0.5
+        return ceil(optimal_flow / FLOW_SEARCH_ROUND_STEP_C) * FLOW_SEARCH_ROUND_STEP_C

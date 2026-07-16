@@ -1,16 +1,3 @@
-"""Comfort/eco/boost/frost-protection decision logic.
-
-The coordinator seeds every configured comfort-condition entity via
-set_comfort_condition() from a synchronous state read at integration setup,
-before ever calling is_comfort(). If no condition has been recorded yet,
-is_comfort() conservatively returns False — in practice this never happens,
-since a room always has at least the shared comfort-release switch among its
-comfort_condition_entities.
-
-`boost_enabled` (whether "boost" is offered as a select option) is an
-entity-layer concern and intentionally not part of this class.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,8 +11,6 @@ from ..const import (
 
 @dataclass
 class HeatingStateConfig:
-    """Static per-room settings for the comfort/eco/boost/frost decision."""
-
     boost_temperature_offset_c: float = 5.0
     frost_protection_temperature_c: float = 8.0
     pv_boost_enabled: bool = False
@@ -33,8 +18,6 @@ class HeatingStateConfig:
 
 
 class HeatingStateController:
-    """Derives the effective heat mode and target temperature for a room."""
-
     def __init__(self, config: HeatingStateConfig) -> None:
         self._config = config
         self._comfort_conditions: dict[str, bool] = {}
@@ -44,17 +27,6 @@ class HeatingStateController:
         self._pv_boost = False
         self._heating_available = True
         self._window_open = False
-        self._active_heat_mode = HeatMode.ECO
-
-    def reset(self) -> None:
-        """Reset all runtime state back to construction-time defaults."""
-        self._comfort_conditions = {}
-        self._window_states = {}
-        self._window_open = False
-        self._heating_available = True
-        self._comfort_temperature_c = DEFAULT_COMFORT_TEMPERATURE_C
-        self._eco_temperature_offset_c = DEFAULT_ECO_TEMPERATURE_OFFSET_C
-        self._pv_boost = False
         self._active_heat_mode = HeatMode.ECO
 
     def set_comfort_condition(self, key: str, value: bool) -> None:
@@ -84,7 +56,6 @@ class HeatingStateController:
         self._active_heat_mode = heat_mode
 
     def update_window_state(self, key: str, is_open: bool) -> tuple[bool, bool]:
-        """Update one window contact and return (previous, current) open state."""
         previous = self._window_open
         self._window_states[key] = is_open
         self._window_open = any(self._window_states.values())
@@ -103,11 +74,13 @@ class HeatingStateController:
             return self._active_heat_mode
         return HeatMode.COMFORT if self.is_comfort() else HeatMode.ECO
 
-    def should_force_frost_protection(self) -> bool:
+    def should_force_frost_protection(self, blocked: bool) -> bool:
+        if blocked:
+            return False
         return self._window_open or not self._heating_available
 
-    def resolve_display_mode(self) -> HeatMode:
-        if self.should_force_frost_protection():
+    def resolve_display_mode(self, blocked: bool) -> HeatMode:
+        if self.should_force_frost_protection(blocked):
             return HeatMode.FROST_PROTECTION
         return self._active_heat_mode
 

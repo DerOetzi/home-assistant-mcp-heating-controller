@@ -1,5 +1,3 @@
-"""Shared base entity: device grouping + coordinator update subscription."""
-
 from __future__ import annotations
 
 from homeassistant.helpers.entity import DeviceInfo, Entity
@@ -9,13 +7,6 @@ from .coordinator import HeatingRoomCoordinator
 
 
 class HeatingControllerEntity(Entity):
-    """Base for all entities of one room's config entry.
-
-    entity_id is left to HA's normal has_entity_name auto-generation (derived
-    from the translated friendly name in the instance's configured language),
-    not forced to an English slug.
-    """
-
     _attr_has_entity_name = True
     _attr_should_poll = False
 

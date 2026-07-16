@@ -1,15 +1,3 @@
-"""Online self-calibration of the UA/capacity learning factors.
-
-This class does not schedule its own timer: the HA coordinator owns
-scheduling (`async_track_time_interval`, every 30 minutes) and calls
-run_learning_cycle() itself. enable()/disable() only track whether learning
-is currently active; run_learning_cycle() no-ops while disabled.
-
-Versioning the persisted `{ua_factor, capacity_factor}` payload is handled by
-the storage layer, not here — consume_persisted_learning_factors() returns a
-plain LearningFactors.
-"""
-
 from __future__ import annotations
 
 import time
@@ -48,8 +36,6 @@ class LearnerPrediction:
 
 
 class RoomMpcModelLearner:
-    """Adjusts `ua_factor`/`capacity_factor` from prediction error every cycle."""
-
     def __init__(
         self, loss_model: RoomLossModel, capacity_model: ThermalCapacityModel
     ) -> None:
@@ -66,10 +52,7 @@ class RoomMpcModelLearner:
         self._next_window_invalid = False
         self._pending_persisted_factors: LearningFactors | None = None
 
-        self._learning_state = RoomModelLearningState(
-            status=LearningStatus.DISABLED,
-            learned_factors=self._get_current_learning_factors(),
-        )
+        self._learning_state = self._create_learning_state(LearningStatus.DISABLED)
 
     def destroy(self) -> None:
         self.disable()
@@ -127,7 +110,6 @@ class RoomMpcModelLearner:
         return self._learning_state
 
     def run_learning_cycle(self) -> None:
-        """Run one 30-minute learning cycle. No-ops while disabled."""
         if not self._enabled:
             return
 
@@ -233,16 +215,15 @@ class RoomMpcModelLearner:
         return sum(entry.applied_heating_power_w for entry in history) / len(history)
 
     def _learn_ua_factor(self, prediction_error_c: float) -> None:
-        next_factor = self._loss_model.learned_ua_factor * (
+        self._loss_model.learned_ua_factor = self._loss_model.learned_ua_factor * (
             1 - prediction_error_c * UA_LEARNING_RATE
         )
-        self._loss_model.learned_ua_factor = next_factor
 
     def _learn_capacity_factor(self, prediction_error_c: float) -> None:
-        next_factor = self._capacity_model.learned_capacity_factor * (
-            1 - prediction_error_c * CAPACITY_LEARNING_RATE
+        self._capacity_model.learned_capacity_factor = (
+            self._capacity_model.learned_capacity_factor
+            * (1 - prediction_error_c * CAPACITY_LEARNING_RATE)
         )
-        self._capacity_model.learned_capacity_factor = next_factor
 
     def _rotate_learning_window(self) -> None:
         self._current_window_invalid = self._next_window_invalid
@@ -257,8 +238,6 @@ class RoomMpcModelLearner:
         self._learning_state = self._create_learning_state(self._learning_state.status)
 
     def consume_persisted_learning_factors(self) -> LearningFactors | None:
-        if self._pending_persisted_factors is None:
-            return None
         factors = self._pending_persisted_factors
         self._pending_persisted_factors = None
         return factors

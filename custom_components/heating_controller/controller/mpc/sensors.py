@@ -1,15 +1,8 @@
-"""Freshness + outlier filtering for MPC temperature inputs.
-
-The room temperature is determined by a fixed rule: use the configured room
-sensor if it is fresh, otherwise fall back to the arithmetic mean of the
-fresh TRV temperatures.
-"""
-
 from __future__ import annotations
 
 import time
 
-from ...const import RoomTemperatureStrategy
+from ...const import MAX_TRV_COUNT, RoomTemperatureStrategy
 from .results import (
     RoomMpcError,
     RoomMpcErrorCode,
@@ -26,17 +19,12 @@ SENSOR_OUTLIER_DRIFT_REPEAT_COUNT = 3
 SENSOR_OUTLIER_DRIFT_MATCH_DELTA_C = 1.0
 SENSOR_OUTLIER_DRIFT_MAX_INTERVAL_S = 5 * 60
 
-TRV_MAX_COUNT = 3
-
 
 class SensorEntry:
-    """A single temperature input with a freshness window and outlier filter."""
-
-    def __init__(self, max_age_s: float, outlier_filter_enabled: bool) -> None:
+    def __init__(self, max_age_s: float) -> None:
         self._value: float | None = None
         self._timestamp = 0.0
         self._max_age_s = max_age_s
-        self._outlier_filter_enabled = outlier_filter_enabled
         self._accepted_values: list[float] = []
         self._pending_outlier_value: float | None = None
         self._pending_outlier_count = 0
@@ -58,10 +46,6 @@ class SensorEntry:
             return True
         return now_ts - self._timestamp <= self._max_age_s
 
-    @property
-    def raw_value(self) -> float | None:
-        return self._value
-
     def _should_ignore_value(self, new_value: float | None) -> bool:
         if new_value is None or self._value is None:
             return False
@@ -72,8 +56,6 @@ class SensorEntry:
         return True
 
     def _is_outlier(self, new_value: float) -> bool:
-        if not self._outlier_filter_enabled:
-            return False
         if len(self._accepted_values) < SENSOR_OUTLIER_MIN_SAMPLES:
             return False
         baseline = self._calculate_median(self._accepted_values)
@@ -137,22 +119,15 @@ class SensorEntry:
 
 
 class RoomMpcSensors:
-    """Freshness- and outlier-filtered temperature inputs for one room."""
-
     def __init__(self, trvs: list[TrvConfig], max_sensor_age_s: float) -> None:
         max_age_s = max(0.0, max_sensor_age_s)
 
         self._trv_temperatures = [
-            SensorEntry(max_age_s, outlier_filter_enabled=True)
-            for _ in trvs[:TRV_MAX_COUNT]
+            SensorEntry(max_age_s) for _ in trvs[:MAX_TRV_COUNT]
         ]
-        self._room_sensor = SensorEntry(max_age_s, outlier_filter_enabled=True)
-        self._outdoor_temperature_sensor = SensorEntry(
-            max_age_s, outlier_filter_enabled=True
-        )
-        self._flow_temperature_sensor = SensorEntry(
-            max_age_s, outlier_filter_enabled=True
-        )
+        self._room_sensor = SensorEntry(max_age_s)
+        self._outdoor_temperature_sensor = SensorEntry(max_age_s)
+        self._flow_temperature_sensor = SensorEntry(max_age_s)
 
     def set_trv_temperature(self, index: int, value: float | None) -> None:
         if index >= len(self._trv_temperatures):

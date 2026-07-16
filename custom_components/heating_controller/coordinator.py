@@ -1,11 +1,3 @@
-"""Per-room runtime coordinator.
-
-Wires one room's config entry to the pure HeatingStateController/RoomMpcController
-logic: reads the current state of every configured entity synchronously at
-setup, keeps them in sync via state-change listeners, runs the 30-minute MPC
-learning cycle, and calls the HA services that actually move the TRVs.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -74,32 +66,27 @@ WINDOW_CLOSED_SUPPRESS_LEARNING_S = 30 * 60
 
 
 def _build_trv_configs(trv_entries: list[dict[str, Any]]) -> list[TrvConfig]:
-    trvs: list[TrvConfig] = []
-    for entry in trv_entries:
-        emitter_type = HeatEmitterType(entry[CONF_TRV_EMITTER_TYPE])
-        trvs.append(
-            TrvConfig(
-                name=entry[CONF_TRV_ENTITY_ID],
-                emitter_type=emitter_type,
-                min_target_temperature_c=entry[CONF_TRV_MIN_TARGET_TEMPERATURE],
-                max_target_temperature_c=entry[CONF_TRV_MAX_TARGET_TEMPERATURE],
-                target_temperature_step_c=entry[CONF_TRV_TARGET_TEMPERATURE_STEP],
-                radiator_type=(
-                    PanelRadiatorType(entry[CONF_TRV_RADIATOR_TYPE])
-                    if CONF_TRV_RADIATOR_TYPE in entry
-                    else None
-                ),
-                width_mm=entry.get(CONF_TRV_WIDTH_MM),
-                height_mm=entry.get(CONF_TRV_HEIGHT_MM),
-                nominal_power_w=entry.get(CONF_TRV_NOMINAL_POWER_W),
-            )
+    return [
+        TrvConfig(
+            name=entry[CONF_TRV_ENTITY_ID],
+            emitter_type=HeatEmitterType(entry[CONF_TRV_EMITTER_TYPE]),
+            min_target_temperature_c=entry[CONF_TRV_MIN_TARGET_TEMPERATURE],
+            max_target_temperature_c=entry[CONF_TRV_MAX_TARGET_TEMPERATURE],
+            target_temperature_step_c=entry[CONF_TRV_TARGET_TEMPERATURE_STEP],
+            radiator_type=(
+                PanelRadiatorType(entry[CONF_TRV_RADIATOR_TYPE])
+                if CONF_TRV_RADIATOR_TYPE in entry
+                else None
+            ),
+            width_mm=entry.get(CONF_TRV_WIDTH_MM),
+            height_mm=entry.get(CONF_TRV_HEIGHT_MM),
+            nominal_power_w=entry.get(CONF_TRV_NOMINAL_POWER_W),
         )
-    return trvs
+        for entry in trv_entries
+    ]
 
 
 class HeatingRoomCoordinator:
-    """Owns the control logic for one room and keeps it in sync with HA state."""
-
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
@@ -155,7 +142,6 @@ class HeatingRoomCoordinator:
         self._listeners: list[Callable[[], None]] = []
 
     def async_add_listener(self, update_callback: Callable[[], None]) -> Callable[[], None]:
-        """Register an entity update callback, returns an unsubscribe function."""
         self._listeners.append(update_callback)
         return lambda: self._listeners.remove(update_callback)
 
@@ -163,10 +149,7 @@ class HeatingRoomCoordinator:
         for update_callback in self._listeners:
             update_callback()
 
-    # -- setup / teardown ----------------------------------------------------
-
     async def async_setup(self) -> None:
-        """Seed all inputs from current entity states and start listening."""
         factors = await self.store.async_load()
         if factors is not None:
             self.mpc.recalibrate_learning_factors(factors)
@@ -180,18 +163,14 @@ class HeatingRoomCoordinator:
             self.state.update_window_state(entity_id, self._is_on(entity_id))
 
         heating_available_entity = self.data[CONF_HEATING_AVAILABLE_ENTITY]
-        heating_available = self._is_on(heating_available_entity)
-        self.state.set_heating_available(heating_available)
-        if heating_available:
-            self.mpc.enable_learning()
-        else:
-            self.mpc.disable_learning()
+        self._apply_heating_available(self._is_on(heating_available_entity))
 
         self.state.set_pv_boost(self._is_on(self.data[CONF_PV_BOOST_ENTITY]))
 
         for index, entity_id in enumerate(self._trv_entity_ids):
             self.mpc.set_trv_temperature(
-                index, self._climate_current_temperature(entity_id)
+                index,
+                self._climate_temperature_from_state(self.hass.states.get(entity_id)),
             )
 
         room_sensor_entity = self.data.get(CONF_ROOM_SENSOR_ENTITY)
@@ -235,7 +214,6 @@ class HeatingRoomCoordinator:
         self.mpc.destroy()
 
     async def _async_import_legacy_learning_factors(self) -> None:
-        """One-time import of learning factors from a prior setup, if present."""
         slug = slugify(self.room_name)
         ua_state = self.hass.states.get(f"text.{slug}_ua_factor")
         capacity_state = self.hass.states.get(f"text.{slug}_capacity_factor")
@@ -262,30 +240,18 @@ class HeatingRoomCoordinator:
             factors.capacity_factor,
         )
 
-    # -- state helpers --------------------------------------------------------
+    def _apply_heating_available(self, available: bool) -> None:
+        self.state.set_heating_available(available)
+        if available:
+            self.mpc.enable_learning()
+        else:
+            self.mpc.disable_learning()
 
     def _is_on(self, entity_id: str) -> bool:
-        state = self.hass.states.get(entity_id)
-        return state is not None and state.state == STATE_ON
+        return self._bool_from_state(self.hass.states.get(entity_id))
 
     def _float_state(self, entity_id: str) -> float | None:
-        state = self.hass.states.get(entity_id)
-        if state is None:
-            return None
-        try:
-            return float(state.state)
-        except (TypeError, ValueError):
-            return None
-
-    def _climate_current_temperature(self, entity_id: str) -> float | None:
-        state = self.hass.states.get(entity_id)
-        if state is None:
-            return None
-        value = state.attributes.get("current_temperature")
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
+        return self._float_from_state(self.hass.states.get(entity_id))
 
     @staticmethod
     def _bool_from_state(state: State | None) -> bool:
@@ -300,7 +266,14 @@ class HeatingRoomCoordinator:
         except (TypeError, ValueError):
             return None
 
-    # -- event handling --------------------------------------------------------
+    @staticmethod
+    def _climate_temperature_from_state(state: State | None) -> float | None:
+        if state is None:
+            return None
+        try:
+            return float(state.attributes.get("current_temperature"))
+        except (TypeError, ValueError):
+            return None
 
     @callback
     def _async_handle_state_change(self, event: Event[EventStateChangedData]) -> None:
@@ -315,13 +288,9 @@ class HeatingRoomCoordinator:
     ) -> None:
         if entity_id in self._trv_entity_ids:
             index = self._trv_entity_ids.index(entity_id)
-            value = None
-            if new_state is not None:
-                try:
-                    value = float(new_state.attributes.get("current_temperature"))
-                except (TypeError, ValueError):
-                    value = None
-            self.mpc.set_trv_temperature(index, value)
+            self.mpc.set_trv_temperature(
+                index, self._climate_temperature_from_state(new_state)
+            )
 
         elif entity_id == self.data.get(CONF_ROOM_SENSOR_ENTITY):
             self.mpc.set_room_sensor_temperature(self._float_from_state(new_state))
@@ -350,12 +319,7 @@ class HeatingRoomCoordinator:
                 )
 
         elif entity_id == self.data[CONF_HEATING_AVAILABLE_ENTITY]:
-            available = self._bool_from_state(new_state)
-            self.state.set_heating_available(available)
-            if available:
-                self.mpc.enable_learning()
-            else:
-                self.mpc.disable_learning()
+            self._apply_heating_available(self._bool_from_state(new_state))
 
         elif entity_id == self.data[CONF_PV_BOOST_ENTITY]:
             self.state.set_pv_boost(self._bool_from_state(new_state))
@@ -364,20 +328,19 @@ class HeatingRoomCoordinator:
 
     async def _async_handle_learning_cycle(self, _now: Any) -> None:
         self.mpc.run_learning_cycle()
+        await self._async_persist_learning_factors()
+        self._notify_listeners()
+
+    async def _async_persist_learning_factors(self) -> None:
         persisted_factors = self.mpc.consume_persisted_learning_factors()
         if persisted_factors is not None:
             await self.store.async_save(persisted_factors)
-        self._notify_listeners()
 
     async def _async_recompute(self) -> None:
-        # No-op when blocked/inactive (desired_automatic_heat_mode then returns
-        # the current mode unchanged), so this is safe to call unconditionally
-        # before every compute cycle, including right after a manual override
-        # or an unblock.
         desired_mode = self.state.desired_automatic_heat_mode(self.active, self.blocked)
         self.state.set_active_heat_mode(desired_mode)
 
-        display_mode = self.state.resolve_display_mode()
+        display_mode = self.state.resolve_display_mode(self.blocked)
         base_target = self.state.determine_base_target_temperature(display_mode)
         effective_target = self.state.effective_target_temperature(base_target)
 
@@ -390,10 +353,7 @@ class HeatingRoomCoordinator:
                 "MPC compute failed for room %s: %s", self.room_name, compute_result.error
             )
 
-        persisted_factors = self.mpc.consume_persisted_learning_factors()
-        if persisted_factors is not None:
-            await self.store.async_save(persisted_factors)
-
+        await self._async_persist_learning_factors()
         self._notify_listeners()
 
     async def _async_apply_result(self, result: RoomMpcResult) -> None:
@@ -407,12 +367,9 @@ class HeatingRoomCoordinator:
                 blocking=False,
             )
 
-    # -- commands from entities/services --------------------------------------
-
     async def async_set_manual_heat_mode(self, mode: HeatMode) -> None:
-        automatic_choice = self.state.desired_automatic_heat_mode(self.active, False)
         self.state.set_active_heat_mode(mode)
-        self.blocked = mode != automatic_choice
+        self.blocked = True
         await self._async_recompute()
 
     async def async_unblock(self) -> None:
@@ -427,19 +384,16 @@ class HeatingRoomCoordinator:
         self.state.set_eco_temperature_offset(value)
         await self._async_recompute()
 
-    # -- read-only properties for entity platforms ----------------------------
-
     @property
     def trv_entity_ids(self) -> list[str]:
         return self._trv_entity_ids
 
     @property
     def current_heat_mode(self) -> HeatMode:
-        return self.state.resolve_display_mode()
+        return self.state.resolve_display_mode(self.blocked)
 
     @property
     def base_temperature_c(self) -> float:
-        """Target temperature for the current heat mode, before PV-boost."""
         return self.state.determine_base_target_temperature(self.current_heat_mode)
 
     @property

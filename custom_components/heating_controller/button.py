@@ -1,5 +1,3 @@
-"""button.heating_unblock_<room> — clear a manual-override block."""
-
 from __future__ import annotations
 
 from homeassistant.components.button import ButtonDeviceClass, ButtonEntity

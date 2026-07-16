@@ -106,6 +106,102 @@ async def test_window_open_forces_frost_protection(hass: HomeAssistant) -> None:
     coordinator.async_unload()
 
 
+async def test_manual_selection_bypasses_forced_frost_protection_for_eco(
+    hass: HomeAssistant,
+) -> None:
+    # Scenario 1: Frostschutz erzwungen -> Absenk gedrueckt -> Absenk
+    # einstellen und Automatik deaktivieren.
+    _seed_entities(hass, heat_available=False)
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+
+    coordinator = HeatingRoomCoordinator(hass, entry)
+    _register_fake_climate_set_temperature(hass)
+    await coordinator.async_setup()
+
+    assert coordinator.current_heat_mode == HeatMode.FROST_PROTECTION
+
+    await coordinator.async_set_manual_heat_mode(HeatMode.ECO)
+    assert coordinator.current_heat_mode == HeatMode.ECO
+    assert coordinator.is_automation_active is False
+
+    coordinator.async_unload()
+
+
+async def test_manual_selection_bypasses_forced_frost_protection_for_comfort(
+    hass: HomeAssistant,
+) -> None:
+    # Scenario 2: Frostschutz erzwungen -> Komfort gedrueckt -> Komfort
+    # einstellen und Automatik deaktivieren. Regression: comfort_release=on
+    # means automatic selection would pick COMFORT anyway -- picking the same
+    # mode automatic would choose must not make any difference to whether the
+    # manual selection wins over forced frost protection.
+    _seed_entities(hass, heat_available=False)
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+
+    coordinator = HeatingRoomCoordinator(hass, entry)
+    _register_fake_climate_set_temperature(hass)
+    await coordinator.async_setup()
+
+    assert coordinator.current_heat_mode == HeatMode.FROST_PROTECTION
+
+    await coordinator.async_set_manual_heat_mode(HeatMode.COMFORT)
+    assert coordinator.current_heat_mode == HeatMode.COMFORT
+    assert coordinator.is_automation_active is False
+
+    coordinator.async_unload()
+
+
+async def test_manual_frost_protection_selection_keeps_automation_deactivated(
+    hass: HomeAssistant,
+) -> None:
+    # Scenario 3: Komfort manuell eingestellt und Automatik deswegen
+    # deaktiviert -> Frostschutz gedrueckt -> Frostschutz einstellen,
+    # Automatik bleibt aus.
+    _seed_entities(hass, heat_available=False)
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+
+    coordinator = HeatingRoomCoordinator(hass, entry)
+    _register_fake_climate_set_temperature(hass)
+    await coordinator.async_setup()
+
+    await coordinator.async_set_manual_heat_mode(HeatMode.COMFORT)
+    assert coordinator.is_automation_active is False
+
+    await coordinator.async_set_manual_heat_mode(HeatMode.FROST_PROTECTION)
+    assert coordinator.current_heat_mode == HeatMode.FROST_PROTECTION
+    assert coordinator.is_automation_active is False
+
+    coordinator.async_unload()
+
+
+async def test_unblock_reactivates_automation_and_reasserts_forced_frost_protection(
+    hass: HomeAssistant,
+) -> None:
+    # Scenario 4: Komfort manuell eingestellt und Automatik deswegen
+    # deaktiviert -> Automatik-Button gedrueckt -> Automatik reaktivieren,
+    # Frostschutz erzwingen (heat_available ist immer noch aus).
+    _seed_entities(hass, heat_available=False)
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+
+    coordinator = HeatingRoomCoordinator(hass, entry)
+    _register_fake_climate_set_temperature(hass)
+    await coordinator.async_setup()
+
+    await coordinator.async_set_manual_heat_mode(HeatMode.COMFORT)
+    assert coordinator.is_automation_active is False
+    assert coordinator.current_heat_mode == HeatMode.COMFORT
+
+    await coordinator.async_unblock()
+    assert coordinator.is_automation_active is True
+    assert coordinator.current_heat_mode == HeatMode.FROST_PROTECTION
+
+    coordinator.async_unload()
+
+
 async def test_manual_override_blocks_until_unblocked(hass: HomeAssistant) -> None:
     _seed_entities(hass)
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)

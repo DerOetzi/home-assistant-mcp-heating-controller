@@ -1,11 +1,3 @@
-"""Config flow for the Heating Controller integration.
-
-One config entry per room. The flow walks through: room name + TRV count,
-one step per TRV (entity + emitter-type-specific fields), the entities the
-room reads from (room/window/comfort/global signals), the comfort/eco/boost/
-frost settings, and finally the MPC design parameters.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -53,10 +45,14 @@ from .const import (
     DOMAIN,
     DesignTemperatureSystem,
     HeatEmitterType,
+    MAX_TRV_COUNT,
     PanelRadiatorType,
 )
 
-TRV_COUNT_OPTIONS = [1, 2, 3]
+TRV_COUNT_OPTIONS = list(range(1, MAX_TRV_COUNT + 1))
+
+_BOOLEAN_SIGNAL_DOMAINS = ["binary_sensor", "input_boolean", "switch"]
+_WINDOW_DEVICE_CLASSES = ["window", "door", "garage_door", "opening"]
 
 
 def _trv_step_schema() -> vol.Schema:
@@ -110,20 +106,9 @@ def _trv_details_schema(emitter_type: str) -> vol.Schema:
 
 
 def _marker(key: type[vol.Marker], name: str, defaults: dict[str, Any]) -> vol.Marker:
-    """vol.Required/vol.Optional, only attaching a default if one exists.
-
-    Passing `default=None` to a selector-typed field makes voluptuous validate
-    `None` against that selector on every call (even when the field is present
-    in user_input), which most selectors reject — so the default must be
-    omitted entirely rather than passed as `None`.
-    """
     if name in defaults and defaults[name] is not None:
         return key(name, default=defaults[name])
     return key(name)
-
-
-_BOOLEAN_SIGNAL_DOMAINS = ["binary_sensor", "input_boolean", "switch"]
-_WINDOW_DEVICE_CLASSES = ["window", "door", "garage_door", "opening"]
 
 
 def _entities_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -258,8 +243,6 @@ def _mpc_schema(defaults: dict[str, Any]) -> vol.Schema:
 
 
 class HeatingControllerConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for one room's Heating Controller entry."""
-
     VERSION = 1
 
     def __init__(self) -> None:
@@ -272,7 +255,6 @@ class HeatingControllerConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
-        errors: dict[str, str] = {}
         if user_input is not None:
             await self.async_set_unique_id(slugify(user_input[CONF_ROOM_NAME]))
             self._abort_if_unique_id_configured()
@@ -289,9 +271,7 @@ class HeatingControllerConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_TRV_COUNT, default=1): vol.In(TRV_COUNT_OPTIONS),
             }
         )
-        return self.async_show_form(
-            step_id="user", data_schema=schema, errors=errors
-        )
+        return self.async_show_form(step_id="user", data_schema=schema)
 
     async def async_step_trv(
         self, user_input: dict[str, Any] | None = None
@@ -366,14 +346,6 @@ class HeatingControllerConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class HeatingControllerOptionsFlow(OptionsFlow):
-    """Edit an existing room's entities/settings/MPC parameters.
-
-    TRVs themselves (added during the initial config flow) are not
-    re-editable here — removing/adding a TRV changes the room's physical
-    setup enough that re-creating the config entry is clearer than a
-    partial edit.
-    """
-
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._data = dict(config_entry.data)
 

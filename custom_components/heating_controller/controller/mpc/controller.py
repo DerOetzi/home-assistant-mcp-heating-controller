@@ -1,13 +1,7 @@
-"""Brute-force demand search + rate limiting for one room.
-
-The constructor never auto-enables learning: the HA coordinator reads the
-configured heating-available entity synchronously at setup and calls
-enable_learning()/disable_learning() itself based on its current state.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
 
 from .learner import LearnerPrediction, RoomMpcModelLearner
 from .math_helper import clamp, round_to_step
@@ -25,12 +19,12 @@ from .types import LearningFactors, RoomModelLearningState, RoomThermalConfig, T
 
 MPC_PREDICTION_HORIZON_S = 1800
 MPC_SIMULATION_STEP_S = 150
+MPC_DEMAND_SEARCH_STEP_PCT = 5
+MPC_SIMULATION_CONVERGENCE_DELTA_C = 0.001
 
 
 @dataclass
 class MpcRateLimitConfig:
-    """Demand-change rate limiting to avoid TRV/valve oscillation."""
-
     demand_hysteresis_pct: float = 5.0
     hold_time_s: float = 300.0
     hold_override_demand_pct: float = 40.0
@@ -52,8 +46,6 @@ class RoomMpcComputeResult:
 
 
 class RoomMpcController:
-    """Per-room grey-box thermal model: demand search + rate limiting + learning."""
-
     def __init__(
         self,
         thermal_config: RoomThermalConfig,
@@ -85,14 +77,9 @@ class RoomMpcController:
         return self._capacity_model.learned_capacity_factor
 
     def get_room_temperature_result(self) -> RoomTemperatureResult:
-        """Current room temperature determination, independent of whether a
-        full demand computation succeeds (e.g. still available while heating
-        is unavailable or no positive heating power exists)."""
         return self._sensors.get_room_temperature()
 
     def get_learning_state(self) -> RoomModelLearningState:
-        """Current learner state, independent of whether the last compute()
-        cycle produced a full result."""
         return self._learner.get_learning_state()
 
     def set_trv_temperature(self, index: int, value: float | None) -> None:
@@ -114,12 +101,6 @@ class RoomMpcController:
 
         mpc_input = input_result.input
 
-        # Zero (or negative, e.g. room already warmer than the emitter's mean
-        # temperature) is a normal, valid outcome — not an error: it just
-        # means no positive heating power is currently achievable, and the
-        # demand search below naturally converges on 0% in that case. This
-        # keeps demand/power/flow-temperature sensors reporting 0 instead of
-        # going unavailable whenever heating is off or not needed.
         available_heating_power_w = max(
             0.0,
             self._emitter_model.calculate_available_heating_power_w(
@@ -142,7 +123,7 @@ class RoomMpcController:
             )
         )
 
-        learning_state = self._update_learning_telemetry(
+        self._record_learning_telemetry(
             mpc_input, requested_heating_power_w, optimal_demand.predicted_temperature_c
         )
 
@@ -155,7 +136,6 @@ class RoomMpcController:
             requested_heating_power_w=requested_heating_power_w,
             available_heating_power_w=available_heating_power_w,
             recommended_flow_temperature_c=recommended_flow_temperature_c,
-            learning_state=learning_state,
         )
         return RoomMpcComputeResult(valid=True, result=result)
 
@@ -166,8 +146,7 @@ class RoomMpcController:
             prediction_error=float("inf"),
         )
 
-        demand_pct = 0
-        while demand_pct <= 100:
+        for demand_pct in range(0, 101, MPC_DEMAND_SEARCH_STEP_PCT):
             predicted_temperature_c = self._predict_room_temperature_c(
                 mpc_input, demand_pct, MPC_PREDICTION_HORIZON_S
             )
@@ -180,17 +159,13 @@ class RoomMpcController:
                     prediction_error=prediction_error,
                 )
 
-            demand_pct += 5
-
         return best
 
     def _predict_room_temperature_c(
         self, mpc_input: RoomMpcInput, demand_pct: float, duration_s: float
     ) -> float:
         simulated_room_temperature_c = mpc_input.room_temp_c
-
-        step_count = max(1, -(-duration_s // MPC_SIMULATION_STEP_S))  # ceil div
-        step_count = int(step_count)
+        step_count = max(1, ceil(duration_s / MPC_SIMULATION_STEP_S))
 
         for _ in range(step_count):
             available_heating_power_w = (
@@ -211,7 +186,7 @@ class RoomMpcController:
             simulated_room_temperature_c += predicted_delta_c
             simulated_room_temperature_c = clamp(simulated_room_temperature_c, 0, 35)
 
-            if abs(predicted_delta_c) < 0.001:
+            if abs(predicted_delta_c) < MPC_SIMULATION_CONVERGENCE_DELTA_C:
                 break
 
         return simulated_room_temperature_c
@@ -245,12 +220,12 @@ class RoomMpcController:
 
         return self._last_output_demand_pct
 
-    def _update_learning_telemetry(
+    def _record_learning_telemetry(
         self,
         mpc_input: RoomMpcInput,
         requested_heating_power_w: float,
         predicted_room_temperature_c: float,
-    ):
+    ) -> None:
         self._learner.append_history(mpc_input, requested_heating_power_w)
         self._learner.set_prediction(
             LearnerPrediction(
@@ -259,10 +234,8 @@ class RoomMpcController:
                 prediction_horizon_s=MPC_PREDICTION_HORIZON_S,
             )
         )
-        return self._learner.get_learning_state()
 
     def run_learning_cycle(self) -> None:
-        """Called by the coordinator every 30 minutes."""
         self._learner.run_learning_cycle()
 
     def consume_persisted_learning_factors(self) -> LearningFactors | None:

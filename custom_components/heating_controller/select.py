@@ -1,5 +1,3 @@
-"""select.heating_mode_<room> — manual heat-mode selection."""
-
 from __future__ import annotations
 
 from homeassistant.components.select import SelectEntity

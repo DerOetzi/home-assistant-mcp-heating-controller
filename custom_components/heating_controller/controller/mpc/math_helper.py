@@ -1,5 +1,3 @@
-"""Small numeric helpers shared by the MPC models."""
-
 from __future__ import annotations
 
 

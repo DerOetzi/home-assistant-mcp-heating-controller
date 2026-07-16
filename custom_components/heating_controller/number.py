@@ -1,5 +1,3 @@
-"""number.comfort_temperature_<room> / number.eco_offset_<room>."""
-
 from __future__ import annotations
 
 from homeassistant.components.number import (

@@ -1,5 +1,3 @@
-"""The Heating Controller integration."""
-
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
@@ -50,13 +48,11 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Delete the room's learning-factor storage file along with its entry."""
     store = LearningFactorsStore(hass, entry.data[CONF_ROOM_NAME], entry.entry_id)
     await store.async_remove()
 
 
 def _async_register_services(hass: HomeAssistant) -> None:
-    """Register the domain-wide `unblock` service (entity/area/device targeting)."""
     if hass.services.has_service(DOMAIN, SERVICE_UNBLOCK):
         return
 

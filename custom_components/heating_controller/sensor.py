@@ -1,8 +1,5 @@
-"""Diagnostic sensors: MPC demand/temperature/learning telemetry."""
-
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -11,7 +8,7 @@ from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfPower, UnitOfT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, LearningStatus
 from .coordinator import HeatingRoomCoordinator
 from .entity import HeatingControllerEntity
 
@@ -72,9 +69,10 @@ class HeatingDemandSensor(_DiagnosticSensor):
         result = self._coordinator.last_result
         if result is None:
             return {}
-        trv_entity_ids = self._coordinator.trv_entity_ids
         return {
-            "trv_target_temps": dict(zip(trv_entity_ids, result.trv_targets, strict=True))
+            "trv_target_temps": dict(
+                zip(self._coordinator.trv_entity_ids, result.trv_targets, strict=True)
+            )
         }
 
 
@@ -127,12 +125,15 @@ class RoomTemperatureSensor(_DiagnosticSensor):
         result = self._coordinator.mpc.get_room_temperature_result()
         if not result.valid:
             return {}
-        trv_entity_ids = self._coordinator.trv_entity_ids
         return {
             "used_strategy": result.used_strategy,
             "room_sensor_temp_c": result.room_sensor_temp_c,
             "trv_temperatures": dict(
-                zip(trv_entity_ids, result.trv_temperatures, strict=True)
+                zip(
+                    self._coordinator.trv_entity_ids,
+                    result.trv_temperatures,
+                    strict=True,
+                )
             ),
         }
 
@@ -154,23 +155,14 @@ class BaseTemperatureSensor(_DiagnosticSensor):
 class MpcLearningStatusSensor(_DiagnosticSensor):
     _attr_translation_key = "mpc_learning_status"
     _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [status.value for status in LearningStatus]
 
     def __init__(self, coordinator: HeatingRoomCoordinator) -> None:
         super().__init__(coordinator, "mpc_learning_status")
-        self._attr_options = ["learned", "disabled", "skipped", "suppressed", "waiting_interval"]
 
     @property
     def native_value(self) -> str:
         return self._coordinator.mpc.get_learning_state().status.value
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        learning_state = self._coordinator.mpc.get_learning_state()
-        prediction = learning_state.prediction
-        return {
-            "prediction": asdict(prediction) if prediction else None,
-            "applied_heating_power_w": learning_state.applied_heating_power_w,
-        }
 
 
 class UaFactorSensor(_DiagnosticSensor):

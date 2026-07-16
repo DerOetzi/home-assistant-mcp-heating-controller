@@ -76,21 +76,52 @@ def test_update_window_state_is_or_combined_across_topics():
 
 def test_should_force_frost_protection_on_open_window_or_no_heating():
     controller = make_controller()
-    assert controller.should_force_frost_protection() is False
+    assert controller.should_force_frost_protection(blocked=False) is False
 
     controller.update_window_state("a", True)
-    assert controller.should_force_frost_protection() is True
+    assert controller.should_force_frost_protection(blocked=False) is True
 
     controller.update_window_state("a", False)
     controller.set_heating_available(False)
-    assert controller.should_force_frost_protection() is True
+    assert controller.should_force_frost_protection(blocked=False) is True
 
 
 def test_resolve_display_mode_shows_frost_protection_when_forced():
     controller = make_controller()
     controller.set_active_heat_mode(HeatMode.COMFORT)
     controller.update_window_state("a", True)
-    assert controller.resolve_display_mode() == HeatMode.FROST_PROTECTION
+    assert controller.resolve_display_mode(blocked=False) == HeatMode.FROST_PROTECTION
+
+
+def test_blocked_bypasses_forced_frost_protection_regardless_of_chosen_mode():
+    # Any manual selection (blocked=True) wins over forced frost protection,
+    # whether the window is open, heating is unavailable, or both -- and
+    # regardless of which mode was actually picked (including frost
+    # protection itself, scenario 3 in the reported spec).
+    controller = make_controller()
+    controller.update_window_state("a", True)
+    controller.set_heating_available(False)
+
+    assert controller.should_force_frost_protection(blocked=False) is True
+    assert controller.should_force_frost_protection(blocked=True) is False
+
+    controller.set_active_heat_mode(HeatMode.COMFORT)
+    assert controller.resolve_display_mode(blocked=True) == HeatMode.COMFORT
+
+    controller.set_active_heat_mode(HeatMode.FROST_PROTECTION)
+    assert controller.resolve_display_mode(blocked=True) == HeatMode.FROST_PROTECTION
+
+
+def test_unblocking_reasserts_forced_frost_protection_if_still_applicable():
+    # Scenario 4: reactivating hands control back to automatic selection,
+    # which re-forces frost protection if window/heating conditions still
+    # call for it.
+    controller = make_controller()
+    controller.set_heating_available(False)
+    controller.set_active_heat_mode(HeatMode.COMFORT)
+
+    assert controller.resolve_display_mode(blocked=True) == HeatMode.COMFORT
+    assert controller.resolve_display_mode(blocked=False) == HeatMode.FROST_PROTECTION
 
 
 def test_determine_base_target_temperature_per_mode():
@@ -123,15 +154,8 @@ def test_effective_target_temperature_ignores_pv_boost_when_disabled():
     assert controller.effective_target_temperature(20.0) == 20.0
 
 
-def test_reset_restores_defaults():
+def test_initial_state_defaults():
     controller = make_controller()
-    controller.set_comfort_condition("a", True)
-    controller.update_window_state("a", True)
-    controller.set_heating_available(False)
-    controller.set_pv_boost(True)
-
-    controller.reset()
-
     assert controller.is_comfort() is False
     assert controller.is_window_open is False
     assert controller.is_heating_available is True

@@ -1,5 +1,3 @@
-"""Constants and shared enums for the Heating Controller integration."""
-
 from __future__ import annotations
 
 from enum import StrEnum
@@ -11,7 +9,6 @@ DEFAULT_ECO_TEMPERATURE_OFFSET_C = -2.0
 
 MAX_TRV_COUNT = 3
 
-# Config/options flow keys — Group A: room & referenced entities
 CONF_ROOM_NAME = "room_name"
 CONF_TRV_COUNT = "trv_count"
 CONF_TRVS = "trvs"
@@ -33,14 +30,12 @@ CONF_FLOW_TEMPERATURE_ENTITY = "flow_temperature_entity"
 CONF_HEATING_AVAILABLE_ENTITY = "heating_available_entity"
 CONF_PV_BOOST_ENTITY = "pv_boost_entity"
 
-# Config/options flow keys — Group B: comfort/eco/boost/frost settings
 CONF_BOOST_ENABLED = "boost_enabled"
 CONF_BOOST_TEMPERATURE_OFFSET = "boost_temperature_offset_c"
 CONF_FROST_PROTECTION_TEMPERATURE = "frost_protection_temperature_c"
 CONF_PV_BOOST_ENABLED = "pv_boost_enabled"
 CONF_PV_BOOST_TEMPERATURE_OFFSET = "pv_boost_temperature_offset_c"
 
-# Config/options flow keys — Group C: MPC / grey-box model
 CONF_DESIGN_INDOOR_TEMPERATURE = "design_indoor_temperature_c"
 CONF_DESIGN_OUTDOOR_TEMPERATURE = "design_outdoor_temperature_c"
 CONF_DESIGN_TEMPERATURE_SYSTEM = "design_temperature_system"
@@ -57,8 +52,6 @@ LEARNING_CYCLE_INTERVAL_MINUTES = 30
 
 
 class HeatMode(StrEnum):
-    """The four heat modes selectable via select.heating_mode_<room>."""
-
     COMFORT = "comfort"
     ECO = "eco"
     BOOST = "boost"
@@ -66,15 +59,11 @@ class HeatMode(StrEnum):
 
 
 class HeatEmitterType(StrEnum):
-    """Type of heat emitter a TRV controls."""
-
     PANEL = "panel"
     TOWEL = "towel"
 
 
 class PanelRadiatorType(StrEnum):
-    """EN 442 panel radiator type numbers."""
-
     TYPE_10 = "10"
     TYPE_11 = "11"
     TYPE_21 = "21"
@@ -83,8 +72,6 @@ class PanelRadiatorType(StrEnum):
 
 
 class DesignTemperatureSystem(StrEnum):
-    """Radiator design flow/return temperature system."""
-
     SYSTEM_75_65 = "system_75_65"
     SYSTEM_70_55 = "system_70_55"
     SYSTEM_55_45 = "system_55_45"
@@ -93,15 +80,11 @@ class DesignTemperatureSystem(StrEnum):
 
 
 class RoomTemperatureStrategy(StrEnum):
-    """Which source was used to determine the room temperature this cycle."""
-
     ROOM_SENSOR = "room_sensor"
     TRV_AVERAGE = "trv_average"
 
 
 class LearningStatus(StrEnum):
-    """Outcome of the most recent MPC learning cycle."""
-
     LEARNED = "learned"
     DISABLED = "disabled"
     SKIPPED = "skipped"
