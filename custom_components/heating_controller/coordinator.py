@@ -61,6 +61,9 @@ _LOGGER = logging.getLogger(__name__)
 
 LEARNING_CYCLE_INTERVAL = timedelta(minutes=LEARNING_CYCLE_INTERVAL_MINUTES)
 
+SENSOR_POLL_INTERVAL_MINUTES = 5
+SENSOR_POLL_INTERVAL = timedelta(minutes=SENSOR_POLL_INTERVAL_MINUTES)
+
 WINDOW_OPEN_SUPPRESS_LEARNING_S = 60 * 60
 WINDOW_CLOSED_SUPPRESS_LEARNING_S = 30 * 60
 
@@ -167,22 +170,9 @@ class HeatingRoomCoordinator:
 
         self.state.set_pv_boost(self._is_on(self.data[CONF_PV_BOOST_ENTITY]))
 
-        for index, entity_id in enumerate(self._trv_entity_ids):
-            self.mpc.set_trv_temperature(
-                index,
-                self._climate_temperature_from_state(self.hass.states.get(entity_id)),
-            )
+        self._refresh_temperature_inputs()
 
         room_sensor_entity = self.data.get(CONF_ROOM_SENSOR_ENTITY)
-        if room_sensor_entity:
-            self.mpc.set_room_sensor_temperature(self._float_state(room_sensor_entity))
-
-        self.mpc.set_outdoor_temperature(
-            self._float_state(self.data[CONF_OUTDOOR_TEMPERATURE_ENTITY])
-        )
-        self.mpc.set_flow_temperature(
-            self._float_state(self.data[CONF_FLOW_TEMPERATURE_ENTITY])
-        )
 
         tracked_entities = list(self._trv_entity_ids)
         tracked_entities.extend(self.data[CONF_COMFORT_CONDITION_ENTITIES])
@@ -202,6 +192,11 @@ class HeatingRoomCoordinator:
         self._unsub.append(
             async_track_time_interval(
                 self.hass, self._async_handle_learning_cycle, LEARNING_CYCLE_INTERVAL
+            )
+        )
+        self._unsub.append(
+            async_track_time_interval(
+                self.hass, self._async_handle_sensor_poll, SENSOR_POLL_INTERVAL
             )
         )
 
@@ -239,6 +234,28 @@ class HeatingRoomCoordinator:
             factors.ua_factor,
             factors.capacity_factor,
         )
+
+    def _refresh_temperature_inputs(self) -> None:
+        for index, entity_id in enumerate(self._trv_entity_ids):
+            self.mpc.set_trv_temperature(
+                index,
+                self._climate_temperature_from_state(self.hass.states.get(entity_id)),
+            )
+
+        room_sensor_entity = self.data.get(CONF_ROOM_SENSOR_ENTITY)
+        if room_sensor_entity:
+            self.mpc.set_room_sensor_temperature(self._float_state(room_sensor_entity))
+
+        self.mpc.set_outdoor_temperature(
+            self._float_state(self.data[CONF_OUTDOOR_TEMPERATURE_ENTITY])
+        )
+        self.mpc.set_flow_temperature(
+            self._float_state(self.data[CONF_FLOW_TEMPERATURE_ENTITY])
+        )
+
+    async def _async_handle_sensor_poll(self, _now: Any) -> None:
+        self._refresh_temperature_inputs()
+        await self._async_recompute()
 
     def _apply_heating_available(self, available: bool) -> None:
         self.state.set_heating_available(available)

@@ -1,5 +1,10 @@
+from datetime import timedelta
+
 from homeassistant.core import HomeAssistant, ServiceCall
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from heating_controller.const import DOMAIN, HeatMode
 from heating_controller.coordinator import HeatingRoomCoordinator
@@ -87,6 +92,34 @@ async def test_setup_seeds_state_and_computes_result(hass: HomeAssistant) -> Non
 
     assert calls, "expected at least one climate.set_temperature service call"
     assert calls[0].data["entity_id"] == "climate.heizung_wohnzimmer"
+
+    coordinator.async_unload()
+
+
+async def test_periodic_sensor_poll_keeps_room_temperature_fresh(
+    hass: HomeAssistant, freezer
+) -> None:
+    # Regression: a physical sensor that only reports every ~60 minutes (no
+    # state-changed event in between) must not go stale within
+    # max_sensor_age_s (1800s here) -- the coordinator has to actively
+    # re-read it periodically (matching the Node-RED original's 5-minute
+    # poll-state nodes), not rely solely on state-changed events.
+    _seed_entities(hass)
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+
+    coordinator = HeatingRoomCoordinator(hass, entry)
+    _register_fake_climate_set_temperature(hass)
+    await coordinator.async_setup()
+
+    assert coordinator.mpc.get_room_temperature_result().valid is True
+
+    for _ in range(7):  # 7 x 5 min = 35 min, past the 1800s (30 min) max age
+        freezer.tick(timedelta(minutes=5))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+    assert coordinator.mpc.get_room_temperature_result().valid is True
 
     coordinator.async_unload()
 
