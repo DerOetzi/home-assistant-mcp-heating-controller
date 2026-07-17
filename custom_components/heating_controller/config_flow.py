@@ -57,17 +57,23 @@ _BOOLEAN_SIGNAL_DOMAINS = ["binary_sensor", "input_boolean", "switch"]
 _WINDOW_DEVICE_CLASSES = ["window", "door", "garage_door", "opening"]
 
 
-def _trv_step_schema() -> vol.Schema:
+def _trv_step_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+    defaults = defaults or {}
     return vol.Schema(
         {
-            vol.Required(CONF_TRV_ENTITY_ID): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="climate")
+            _marker(vol.Required, CONF_TRV_ENTITY_ID, defaults): (
+                selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="climate")
+                )
             ),
-            vol.Optional(CONF_TRV_ACTIVE_SWITCH): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="switch")
+            _marker(vol.Optional, CONF_TRV_ACTIVE_SWITCH, defaults): (
+                selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="switch")
+                )
             ),
             vol.Required(
-                CONF_TRV_EMITTER_TYPE, default=HeatEmitterType.PANEL
+                CONF_TRV_EMITTER_TYPE,
+                default=defaults.get(CONF_TRV_EMITTER_TYPE, HeatEmitterType.PANEL),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[e.value for e in HeatEmitterType],
@@ -75,28 +81,40 @@ def _trv_step_schema() -> vol.Schema:
                     translation_key=CONF_TRV_EMITTER_TYPE,
                 )
             ),
-            vol.Required(CONF_TRV_MIN_TARGET_TEMPERATURE, default=5.0): vol.Coerce(
-                float
-            ),
-            vol.Required(CONF_TRV_MAX_TARGET_TEMPERATURE, default=30.0): vol.Coerce(
-                float
-            ),
             vol.Required(
-                CONF_TRV_TARGET_TEMPERATURE_STEP, default=0.5
+                CONF_TRV_MIN_TARGET_TEMPERATURE,
+                default=defaults.get(CONF_TRV_MIN_TARGET_TEMPERATURE, 5.0),
+            ): vol.Coerce(float),
+            vol.Required(
+                CONF_TRV_MAX_TARGET_TEMPERATURE,
+                default=defaults.get(CONF_TRV_MAX_TARGET_TEMPERATURE, 30.0),
+            ): vol.Coerce(float),
+            vol.Required(
+                CONF_TRV_TARGET_TEMPERATURE_STEP,
+                default=defaults.get(CONF_TRV_TARGET_TEMPERATURE_STEP, 0.5),
             ): vol.Coerce(float),
         }
     )
 
 
-def _trv_details_schema(emitter_type: str) -> vol.Schema:
+def _trv_details_schema(
+    emitter_type: str, defaults: dict[str, Any] | None = None
+) -> vol.Schema:
+    defaults = defaults or {}
     if emitter_type == HeatEmitterType.TOWEL:
         return vol.Schema(
-            {vol.Required(CONF_TRV_NOMINAL_POWER_W, default=500.0): vol.Coerce(float)}
+            {
+                vol.Required(
+                    CONF_TRV_NOMINAL_POWER_W,
+                    default=defaults.get(CONF_TRV_NOMINAL_POWER_W, 500.0),
+                ): vol.Coerce(float)
+            }
         )
     return vol.Schema(
         {
             vol.Required(
-                CONF_TRV_RADIATOR_TYPE, default=PanelRadiatorType.TYPE_22
+                CONF_TRV_RADIATOR_TYPE,
+                default=defaults.get(CONF_TRV_RADIATOR_TYPE, PanelRadiatorType.TYPE_22),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[t.value for t in PanelRadiatorType],
@@ -104,8 +122,12 @@ def _trv_details_schema(emitter_type: str) -> vol.Schema:
                     translation_key=CONF_TRV_RADIATOR_TYPE,
                 )
             ),
-            vol.Required(CONF_TRV_WIDTH_MM, default=1000.0): vol.Coerce(float),
-            vol.Required(CONF_TRV_HEIGHT_MM, default=600.0): vol.Coerce(float),
+            vol.Required(
+                CONF_TRV_WIDTH_MM, default=defaults.get(CONF_TRV_WIDTH_MM, 1000.0)
+            ): vol.Coerce(float),
+            vol.Required(
+                CONF_TRV_HEIGHT_MM, default=defaults.get(CONF_TRV_HEIGHT_MM, 600.0)
+            ): vol.Coerce(float),
         }
     )
 
@@ -349,9 +371,63 @@ class HeatingControllerConfigFlow(ConfigFlow, domain=DOMAIN):
 
 class HeatingControllerOptionsFlow(OptionsFlow):
     def __init__(self, config_entry: ConfigEntry) -> None:
+        self._config_entry = config_entry
         self._data = dict(config_entry.data)
+        self._existing_trvs: list[dict[str, Any]] = list(
+            config_entry.data.get(CONF_TRVS, [])
+        )
+        self._trvs: list[dict[str, Any]] = []
+        self._pending_trv: dict[str, Any] = {}
+        self._trv_index = 0
+        self._trv_count = len(self._existing_trvs)
+
+    def _trv_defaults(self) -> dict[str, Any]:
+        if self._trv_index < len(self._existing_trvs):
+            return self._existing_trvs[self._trv_index]
+        return {}
 
     async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        self._trvs = []
+        self._trv_index = 0
+        return await self.async_step_trv()
+
+    async def async_step_trv(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        if user_input is not None:
+            self._pending_trv = dict(user_input)
+            return await self.async_step_trv_details()
+
+        return self.async_show_form(
+            step_id="trv",
+            data_schema=_trv_step_schema(self._trv_defaults()),
+            description_placeholders={"index": str(self._trv_index + 1)},
+        )
+
+    async def async_step_trv_details(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        emitter_type = self._pending_trv[CONF_TRV_EMITTER_TYPE]
+
+        if user_input is not None:
+            self._pending_trv.update(user_input)
+            self._trvs.append(self._pending_trv)
+            self._pending_trv = {}
+            self._trv_index += 1
+
+            if self._trv_index < self._trv_count:
+                return await self.async_step_trv()
+            return await self.async_step_entities()
+
+        return self.async_show_form(
+            step_id="trv_details",
+            data_schema=_trv_details_schema(emitter_type, self._trv_defaults()),
+            description_placeholders={"index": str(self._trv_index + 1)},
+        )
+
+    async def async_step_entities(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
@@ -359,7 +435,7 @@ class HeatingControllerOptionsFlow(OptionsFlow):
             return await self.async_step_settings()
 
         return self.async_show_form(
-            step_id="init", data_schema=_entities_schema(self._data)
+            step_id="entities", data_schema=_entities_schema(self._data)
         )
 
     async def async_step_settings(
@@ -376,6 +452,10 @@ class HeatingControllerOptionsFlow(OptionsFlow):
     async def async_step_mpc(self, user_input: dict[str, Any] | None = None) -> Any:
         if user_input is not None:
             self._data.update(user_input)
-            return self.async_create_entry(title="", data=self._data)
+            self._data[CONF_TRVS] = self._trvs
+            self.hass.config_entries.async_update_entry(
+                self._config_entry, data=self._data
+            )
+            return self.async_create_entry(title="", data={})
 
         return self.async_show_form(step_id="mpc", data_schema=_mpc_schema(self._data))

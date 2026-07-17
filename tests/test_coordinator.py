@@ -403,6 +403,32 @@ async def test_trv_active_switch_turned_off_when_unavailable(
     coordinator.async_unload()
 
 
+async def test_setup_tolerates_missing_heat_source_climate_entity(
+    hass: HomeAssistant,
+) -> None:
+    # A config entry created before heat_source_climate_entity existed must
+    # still load (degraded: no heat source -> trv_active False -> forced frost,
+    # correct in summer) instead of crashing, so it survives a restart until
+    # re-configured via the options flow.
+    _seed_entities(hass)
+    legacy_data = {
+        key: value
+        for key, value in ENTRY_DATA.items()
+        if key != "heat_source_climate_entity"
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=legacy_data)
+    entry.add_to_hass(hass)
+
+    coordinator = HeatingRoomCoordinator(hass, entry)
+    _register_fake_climate_set_temperature(hass)
+    await coordinator.async_setup()
+
+    assert coordinator.trv_active is False
+    assert coordinator.current_heat_mode == HeatMode.FROST_PROTECTION
+
+    coordinator.async_unload()
+
+
 async def test_legacy_learning_factors_imported_from_room_prefixed_text_entities(
     hass: HomeAssistant,
 ) -> None:

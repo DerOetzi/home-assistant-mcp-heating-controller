@@ -1,6 +1,7 @@
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from heating_controller.const import (
     CONF_COMFORT_CONDITION_ENTITIES,
@@ -15,6 +16,8 @@ from heating_controller.const import (
     CONF_TRVS,
     DOMAIN,
 )
+
+from test_coordinator import ENTRY_DATA, _seed_entities
 
 
 async def test_full_config_flow_creates_entry(hass: HomeAssistant) -> None:
@@ -174,3 +177,48 @@ async def test_duplicate_room_name_is_aborted(hass: HomeAssistant) -> None:
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_options_flow_writes_entry_data_and_covers_trvs(
+    hass: HomeAssistant,
+) -> None:
+    # The coordinator reads entry.data, so the options flow must update
+    # entry.data (not entry.options). It must also walk the TRV steps so
+    # per-TRV settings like trv_active_switch can be reconfigured.
+    _seed_entities(hass)
+
+    async def climate_handler(call: ServiceCall) -> None:
+        return None
+
+    async def switch_handler(call: ServiceCall) -> None:
+        return None
+
+    hass.services.async_register("climate", "set_temperature", climate_handler)
+    hass.services.async_register("switch", "turn_on", switch_handler)
+    hass.services.async_register("switch", "turn_off", switch_handler)
+
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "trv"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "trv_details"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "entities"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "settings"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "mpc"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"flow_threshold_c": 35.0}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    assert entry.data[CONF_FLOW_THRESHOLD] == 35.0
+    assert entry.data[CONF_TRVS][0][CONF_TRV_ACTIVE_SWITCH] == (
+        "switch.heizung_wohnzimmer_trv_active"
+    )

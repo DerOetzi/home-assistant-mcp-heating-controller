@@ -108,9 +108,9 @@ class HeatingRoomCoordinator:
             for trv in self._trv_entries
             if trv.get(CONF_TRV_ACTIVE_SWITCH)
         ]
-        self._heat_source_climate_entity: str = self.data[
+        self._heat_source_climate_entity: str | None = self.data.get(
             CONF_HEAT_SOURCE_CLIMATE_ENTITY
-        ]
+        )
         self._flow_threshold_c: float = self.data.get(
             CONF_FLOW_THRESHOLD, DEFAULT_FLOW_THRESHOLD_C
         )
@@ -191,7 +191,8 @@ class HeatingRoomCoordinator:
         tracked_entities.extend(self.data.get(CONF_WINDOW_CONTACT_ENTITIES, []))
         tracked_entities.append(self.data[CONF_PV_BOOST_ENTITY])
         tracked_entities.append(self.data[CONF_OUTDOOR_TEMPERATURE_ENTITY])
-        tracked_entities.append(self._heat_source_climate_entity)
+        if self._heat_source_climate_entity:
+            tracked_entities.append(self._heat_source_climate_entity)
         if room_sensor_entity:
             tracked_entities.append(room_sensor_entity)
 
@@ -267,6 +268,8 @@ class HeatingRoomCoordinator:
         await self._async_recompute()
 
     def _compute_trv_active(self) -> bool:
+        if not self._heat_source_climate_entity:
+            return False
         climate_state = self.hass.states.get(self._heat_source_climate_entity)
         if climate_state is None or climate_state.state != HEAT_SOURCE_ACTIVE_STATE:
             return False
@@ -453,6 +456,8 @@ class HeatingRoomCoordinator:
 
     @property
     def current_flow_temperature_c(self) -> float | None:
+        if not self._heat_source_climate_entity:
+            return None
         return self._climate_temperature_from_state(
             self.hass.states.get(self._heat_source_climate_entity)
         )

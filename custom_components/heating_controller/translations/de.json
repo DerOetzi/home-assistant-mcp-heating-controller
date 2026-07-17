@@ -72,7 +72,27 @@
   },
   "options": {
     "step": {
-      "init": {
+      "trv": {
+        "title": "Heizkörperthermostat {index}",
+        "data": {
+          "entity_id": "Climate-Entity des Thermostats",
+          "trv_active_switch": "TRV-Aktiv-Switch (optional)",
+          "emitter_type": "Heizkörpertyp",
+          "min_target_temperature_c": "Minimale Zieltemperatur (°C)",
+          "max_target_temperature_c": "Maximale Zieltemperatur (°C)",
+          "target_temperature_step_c": "Zieltemperatur-Schrittweite (°C)"
+        }
+      },
+      "trv_details": {
+        "title": "Details Heizkörperthermostat {index}",
+        "data": {
+          "radiator_type": "Heizkörper-Typenbezeichnung",
+          "width_mm": "Heizkörperbreite (mm)",
+          "height_mm": "Heizkörperhöhe (mm)",
+          "nominal_power_w": "Nennleistung (W)"
+        }
+      },
+      "entities": {
         "title": "Sensoren und Signale",
         "data": {
           "room_sensor_entity": "Raumtemperatursensor (optional)",
