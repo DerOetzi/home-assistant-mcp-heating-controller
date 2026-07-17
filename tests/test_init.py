@@ -12,7 +12,12 @@ async def test_setup_entry_registers_service_and_entities(hass: HomeAssistant) -
     async def climate_handler(call: ServiceCall) -> None:
         pass
 
+    async def switch_handler(call: ServiceCall) -> None:
+        pass
+
     hass.services.async_register("climate", "set_temperature", climate_handler)
+    hass.services.async_register("switch", "turn_on", switch_handler)
+    hass.services.async_register("switch", "turn_off", switch_handler)
 
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)
@@ -45,7 +50,12 @@ async def test_remove_entry_deletes_learning_factors_store(hass: HomeAssistant) 
     async def climate_handler(call: ServiceCall) -> None:
         pass
 
+    async def switch_handler(call: ServiceCall) -> None:
+        pass
+
     hass.services.async_register("climate", "set_temperature", climate_handler)
+    hass.services.async_register("switch", "turn_on", switch_handler)
+    hass.services.async_register("switch", "turn_off", switch_handler)
 
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)

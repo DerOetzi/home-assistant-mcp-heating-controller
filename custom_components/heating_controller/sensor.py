@@ -47,8 +47,14 @@ class MinFlowTemperatureSensor(_DiagnosticSensor):
 
     @property
     def native_value(self) -> float | None:
-        result = self._coordinator.last_result
-        return result.recommended_flow_temperature_c if result else None
+        return self._coordinator.normal_min_flow_temperature_c
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "current_flow_temperature_c": self._coordinator.current_flow_temperature_c,
+            "sufficiently_supplied": self._coordinator.is_sufficiently_supplied,
+        }
 
 
 class HeatingDemandSensor(_DiagnosticSensor):

@@ -18,8 +18,8 @@ from .const import (
     CONF_DESIGN_INDOOR_TEMPERATURE,
     CONF_DESIGN_OUTDOOR_TEMPERATURE,
     CONF_DESIGN_TEMPERATURE_SYSTEM,
-    CONF_FLOW_TEMPERATURE_ENTITY,
-    CONF_HEATING_AVAILABLE_ENTITY,
+    CONF_FLOW_THRESHOLD,
+    CONF_HEAT_SOURCE_CLIMATE_ENTITY,
     CONF_MAX_SENSOR_AGE,
     CONF_MPC_DEMAND_HYSTERESIS_PCT,
     CONF_MPC_HOLD_OVERRIDE_DEMAND_PCT,
@@ -32,6 +32,7 @@ from .const import (
     CONF_ROOM_HEAT_LOAD,
     CONF_ROOM_NAME,
     CONF_ROOM_SENSOR_ENTITY,
+    CONF_TRV_ACTIVE_SWITCH,
     CONF_TRV_EMITTER_TYPE,
     CONF_TRV_ENTITY_ID,
     CONF_TRV_HEIGHT_MM,
@@ -45,6 +46,8 @@ from .const import (
     CONF_WINDOW_CONTACT_ENTITIES,
     CONF_BOOST_TEMPERATURE_OFFSET,
     CONF_FROST_PROTECTION_TEMPERATURE,
+    DEFAULT_FLOW_THRESHOLD_C,
+    HEAT_SOURCE_ACTIVE_STATE,
     DesignTemperatureSystem,
     HeatEmitterType,
     HeatMode,
@@ -100,6 +103,17 @@ class HeatingRoomCoordinator:
         self._trv_entity_ids: list[str] = [
             trv[CONF_TRV_ENTITY_ID] for trv in self._trv_entries
         ]
+        self._trv_active_switches: list[str] = [
+            trv[CONF_TRV_ACTIVE_SWITCH]
+            for trv in self._trv_entries
+            if trv.get(CONF_TRV_ACTIVE_SWITCH)
+        ]
+        self._heat_source_climate_entity: str = self.data[
+            CONF_HEAT_SOURCE_CLIMATE_ENTITY
+        ]
+        self._flow_threshold_c: float = self.data.get(
+            CONF_FLOW_THRESHOLD, DEFAULT_FLOW_THRESHOLD_C
+        )
 
         self.state = HeatingStateController(
             HeatingStateConfig(
@@ -137,9 +151,10 @@ class HeatingRoomCoordinator:
 
         self.store = LearningFactorsStore(hass, self.room_name, entry.entry_id)
 
-        self.active = True
         self.blocked = False
+        self.trv_active = True
         self.last_result: RoomMpcResult | None = None
+        self.normal_result: RoomMpcResult | None = None
 
         self._unsub: list[Callable[[], None]] = []
         self._listeners: list[Callable[[], None]] = []
@@ -165,9 +180,6 @@ class HeatingRoomCoordinator:
         for entity_id in self.data.get(CONF_WINDOW_CONTACT_ENTITIES, []):
             self.state.update_window_state(entity_id, self._is_on(entity_id))
 
-        heating_available_entity = self.data[CONF_HEATING_AVAILABLE_ENTITY]
-        self._apply_heating_available(self._is_on(heating_available_entity))
-
         self.state.set_pv_boost(self._is_on(self.data[CONF_PV_BOOST_ENTITY]))
 
         self._refresh_temperature_inputs()
@@ -177,10 +189,9 @@ class HeatingRoomCoordinator:
         tracked_entities = list(self._trv_entity_ids)
         tracked_entities.extend(self.data[CONF_COMFORT_CONDITION_ENTITIES])
         tracked_entities.extend(self.data.get(CONF_WINDOW_CONTACT_ENTITIES, []))
-        tracked_entities.append(heating_available_entity)
         tracked_entities.append(self.data[CONF_PV_BOOST_ENTITY])
         tracked_entities.append(self.data[CONF_OUTDOOR_TEMPERATURE_ENTITY])
-        tracked_entities.append(self.data[CONF_FLOW_TEMPERATURE_ENTITY])
+        tracked_entities.append(self._heat_source_climate_entity)
         if room_sensor_entity:
             tracked_entities.append(room_sensor_entity)
 
@@ -249,20 +260,28 @@ class HeatingRoomCoordinator:
         self.mpc.set_outdoor_temperature(
             self._float_state(self.data[CONF_OUTDOOR_TEMPERATURE_ENTITY])
         )
-        self.mpc.set_flow_temperature(
-            self._float_state(self.data[CONF_FLOW_TEMPERATURE_ENTITY])
-        )
+        self.mpc.set_flow_temperature(self.current_flow_temperature_c)
 
     async def _async_handle_sensor_poll(self, _now: Any) -> None:
         self._refresh_temperature_inputs()
         await self._async_recompute()
 
-    def _apply_heating_available(self, available: bool) -> None:
-        self.state.set_heating_available(available)
-        if available:
-            self.mpc.enable_learning()
-        else:
-            self.mpc.disable_learning()
+    def _compute_trv_active(self) -> bool:
+        climate_state = self.hass.states.get(self._heat_source_climate_entity)
+        if climate_state is None or climate_state.state != HEAT_SOURCE_ACTIVE_STATE:
+            return False
+        flow_temp_c = self._climate_temperature_from_state(climate_state)
+        return flow_temp_c is not None and flow_temp_c > self._flow_threshold_c
+
+    async def _async_apply_trv_active_switches(self, active: bool) -> None:
+        if not self._trv_active_switches:
+            return
+        await self.hass.services.async_call(
+            "switch",
+            "turn_on" if active else "turn_off",
+            {"entity_id": self._trv_active_switches},
+            blocking=False,
+        )
 
     def _is_on(self, entity_id: str) -> bool:
         return self._bool_from_state(self.hass.states.get(entity_id))
@@ -315,8 +334,10 @@ class HeatingRoomCoordinator:
         elif entity_id == self.data[CONF_OUTDOOR_TEMPERATURE_ENTITY]:
             self.mpc.set_outdoor_temperature(self._float_from_state(new_state))
 
-        elif entity_id == self.data[CONF_FLOW_TEMPERATURE_ENTITY]:
-            self.mpc.set_flow_temperature(self._float_from_state(new_state))
+        elif entity_id == self._heat_source_climate_entity:
+            self.mpc.set_flow_temperature(
+                self._climate_temperature_from_state(new_state)
+            )
 
         elif entity_id in self.data[CONF_COMFORT_CONDITION_ENTITIES]:
             self.state.set_comfort_condition(
@@ -335,9 +356,6 @@ class HeatingRoomCoordinator:
                     WINDOW_CLOSED_SUPPRESS_LEARNING_S
                 )
 
-        elif entity_id == self.data[CONF_HEATING_AVAILABLE_ENTITY]:
-            self._apply_heating_available(self._bool_from_state(new_state))
-
         elif entity_id == self.data[CONF_PV_BOOST_ENTITY]:
             self.state.set_pv_boost(self._bool_from_state(new_state))
 
@@ -354,22 +372,38 @@ class HeatingRoomCoordinator:
             await self.store.async_save(persisted_factors)
 
     async def _async_recompute(self) -> None:
-        desired_mode = self.state.desired_automatic_heat_mode(self.active, self.blocked)
+        desired_mode = self.state.desired_automatic_heat_mode(self.blocked)
         self.state.set_active_heat_mode(desired_mode)
 
-        display_mode = self.state.resolve_display_mode(self.blocked)
-        base_target = self.state.determine_base_target_temperature(display_mode)
-        effective_target = self.state.effective_target_temperature(base_target)
+        self.trv_active = self._compute_trv_active()
+        self.state.set_trv_active(self.trv_active)
+        if self.trv_active:
+            self.mpc.enable_learning()
+        else:
+            self.mpc.disable_learning()
 
-        compute_result = self.mpc.compute(effective_target)
-        if compute_result.valid:
-            self.last_result = compute_result.result
-            await self._async_apply_result(compute_result.result)
+        normal_target = self.state.effective_target_temperature(
+            self.state.determine_base_target_temperature(self.state.current_heat_mode)
+        )
+        normal_compute = self.mpc.compute(normal_target, apply_side_effects=False)
+        self.normal_result = normal_compute.result if normal_compute.valid else None
+
+        display_mode = self.state.resolve_display_mode(self.blocked)
+        actual_target = self.state.effective_target_temperature(
+            self.state.determine_base_target_temperature(display_mode)
+        )
+        actual_compute = self.mpc.compute(actual_target)
+        if actual_compute.valid:
+            self.last_result = actual_compute.result
+            await self._async_apply_result(actual_compute.result)
         else:
             _LOGGER.debug(
-                "MPC compute failed for room %s: %s", self.room_name, compute_result.error
+                "MPC compute failed for room %s: %s",
+                self.room_name,
+                actual_compute.error,
             )
 
+        await self._async_apply_trv_active_switches(self.trv_active)
         await self._async_persist_learning_factors()
         self._notify_listeners()
 
@@ -415,4 +449,27 @@ class HeatingRoomCoordinator:
 
     @property
     def is_automation_active(self) -> bool:
-        return self.active and not self.blocked
+        return not self.blocked
+
+    @property
+    def current_flow_temperature_c(self) -> float | None:
+        return self._climate_temperature_from_state(
+            self.hass.states.get(self._heat_source_climate_entity)
+        )
+
+    @property
+    def normal_min_flow_temperature_c(self) -> float | None:
+        result = self.normal_result
+        return result.recommended_flow_temperature_c if result else None
+
+    @property
+    def is_sufficiently_supplied(self) -> bool | None:
+        required = self.normal_min_flow_temperature_c
+        if required is None:
+            return None
+        if required <= 0:
+            return True
+        current = self.current_flow_temperature_c
+        if current is None:
+            return False
+        return current >= required

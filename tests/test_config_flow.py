@@ -5,11 +5,12 @@ from homeassistant.data_entry_flow import FlowResultType
 from heating_controller.const import (
     CONF_COMFORT_CONDITION_ENTITIES,
     CONF_DESIGN_TEMPERATURE_SYSTEM,
-    CONF_FLOW_TEMPERATURE_ENTITY,
-    CONF_HEATING_AVAILABLE_ENTITY,
+    CONF_FLOW_THRESHOLD,
+    CONF_HEAT_SOURCE_CLIMATE_ENTITY,
     CONF_OUTDOOR_TEMPERATURE_ENTITY,
     CONF_PV_BOOST_ENTITY,
     CONF_ROOM_NAME,
+    CONF_TRV_ACTIVE_SWITCH,
     CONF_TRV_ENTITY_ID,
     CONF_TRVS,
     DOMAIN,
@@ -33,6 +34,7 @@ async def test_full_config_flow_creates_entry(hass: HomeAssistant) -> None:
         result["flow_id"],
         {
             "entity_id": "climate.heizung_wohnzimmer",
+            "trv_active_switch": "switch.heizung_wohnzimmer_trv_active",
             "emitter_type": "panel",
             "min_target_temperature_c": 5.0,
             "max_target_temperature_c": 28.0,
@@ -53,8 +55,7 @@ async def test_full_config_flow_creates_entry(hass: HomeAssistant) -> None:
             "window_contact_entities": [],
             "comfort_condition_entities": ["input_boolean.comfort_release"],
             "outdoor_temperature_entity": "sensor.outdoor_temperature",
-            "flow_temperature_entity": "sensor.flow_temperature",
-            "heating_available_entity": "binary_sensor.heat_available",
+            "heat_source_climate_entity": "climate.heat_source",
             "pv_boost_entity": "binary_sensor.pv_boost",
         },
     )
@@ -84,6 +85,7 @@ async def test_full_config_flow_creates_entry(hass: HomeAssistant) -> None:
             "mpc_hold_override_demand_pct": 40.0,
             "mpc_max_demand_step_pct": 20.0,
             "max_sensor_age_s": 1800.0,
+            "flow_threshold_c": 30.0,
         },
     )
 
@@ -93,12 +95,16 @@ async def test_full_config_flow_creates_entry(hass: HomeAssistant) -> None:
     assert data[CONF_ROOM_NAME] == "Wohnzimmer"
     assert data[CONF_DESIGN_TEMPERATURE_SYSTEM] == "system_55_45"
     assert data[CONF_OUTDOOR_TEMPERATURE_ENTITY] == "sensor.outdoor_temperature"
-    assert data[CONF_FLOW_TEMPERATURE_ENTITY] == "sensor.flow_temperature"
-    assert data[CONF_HEATING_AVAILABLE_ENTITY] == "binary_sensor.heat_available"
+    assert data[CONF_HEAT_SOURCE_CLIMATE_ENTITY] == "climate.heat_source"
+    assert data[CONF_FLOW_THRESHOLD] == 30.0
     assert data[CONF_PV_BOOST_ENTITY] == "binary_sensor.pv_boost"
     assert data[CONF_COMFORT_CONDITION_ENTITIES] == ["input_boolean.comfort_release"]
     assert len(data[CONF_TRVS]) == 1
     assert data[CONF_TRVS][0][CONF_TRV_ENTITY_ID] == "climate.heizung_wohnzimmer"
+    assert (
+        data[CONF_TRVS][0][CONF_TRV_ACTIVE_SWITCH]
+        == "switch.heizung_wohnzimmer_trv_active"
+    )
 
 
 async def test_duplicate_room_name_is_aborted(hass: HomeAssistant) -> None:
@@ -127,8 +133,7 @@ async def test_duplicate_room_name_is_aborted(hass: HomeAssistant) -> None:
             {
                 "comfort_condition_entities": ["input_boolean.comfort_release"],
                 "outdoor_temperature_entity": "sensor.outdoor_temperature",
-                "flow_temperature_entity": "sensor.flow_temperature",
-                "heating_available_entity": "binary_sensor.heat_available",
+                "heat_source_climate_entity": "climate.heat_source",
                 "pv_boost_entity": "binary_sensor.pv_boost",
             },
         )
@@ -154,6 +159,7 @@ async def test_duplicate_room_name_is_aborted(hass: HomeAssistant) -> None:
                 "mpc_hold_override_demand_pct": 40.0,
                 "mpc_max_demand_step_pct": 20.0,
                 "max_sensor_age_s": 1800.0,
+                "flow_threshold_c": 30.0,
             },
         )
 

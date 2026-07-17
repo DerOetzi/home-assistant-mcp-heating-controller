@@ -13,6 +13,7 @@
         "title": "Heizkörperthermostat {index}",
         "data": {
           "entity_id": "Climate-Entity des Thermostats",
+          "trv_active_switch": "TRV-Aktiv-Switch (optional)",
           "emitter_type": "Heizkörpertyp",
           "min_target_temperature_c": "Minimale Zieltemperatur (°C)",
           "max_target_temperature_c": "Maximale Zieltemperatur (°C)",
@@ -35,8 +36,7 @@
           "window_contact_entities": "Fensterkontakte",
           "comfort_condition_entities": "Komfort-Bedingungs-Entities",
           "outdoor_temperature_entity": "Außentemperatursensor",
-          "flow_temperature_entity": "Vorlauftemperatursensor",
-          "heating_available_entity": "Wärmeerzeuger-verfügbar-Entity",
+          "heat_source_climate_entity": "Wärmeerzeuger-Climate-Entity",
           "pv_boost_entity": "PV-Überschuss-Entity"
         }
       },
@@ -61,7 +61,8 @@
           "mpc_hold_time_s": "Haltezeit (s)",
           "mpc_hold_override_demand_pct": "Haltezeit-Override-Anforderung (%)",
           "mpc_max_demand_step_pct": "Max. Anforderungsänderung je Zyklus (%)",
-          "max_sensor_age_s": "Max. Sensoralter (s)"
+          "max_sensor_age_s": "Max. Sensoralter (s)",
+          "flow_threshold_c": "Wärmeerzeuger-Vorlaufschwelle (°C)"
         }
       }
     },
@@ -78,8 +79,7 @@
           "window_contact_entities": "Fensterkontakte",
           "comfort_condition_entities": "Komfort-Bedingungs-Entities",
           "outdoor_temperature_entity": "Außentemperatursensor",
-          "flow_temperature_entity": "Vorlauftemperatursensor",
-          "heating_available_entity": "Wärmeerzeuger-verfügbar-Entity",
+          "heat_source_climate_entity": "Wärmeerzeuger-Climate-Entity",
           "pv_boost_entity": "PV-Überschuss-Entity"
         }
       },
@@ -104,7 +104,8 @@
           "mpc_hold_time_s": "Haltezeit (s)",
           "mpc_hold_override_demand_pct": "Haltezeit-Override-Anforderung (%)",
           "mpc_max_demand_step_pct": "Max. Anforderungsänderung je Zyklus (%)",
-          "max_sensor_age_s": "Max. Sensoralter (s)"
+          "max_sensor_age_s": "Max. Sensoralter (s)",
+          "flow_threshold_c": "Wärmeerzeuger-Vorlaufschwelle (°C)"
         }
       }
     }

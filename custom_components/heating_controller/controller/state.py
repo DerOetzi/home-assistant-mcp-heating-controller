@@ -25,7 +25,7 @@ class HeatingStateController:
         self._comfort_temperature_c = DEFAULT_COMFORT_TEMPERATURE_C
         self._eco_temperature_offset_c = DEFAULT_ECO_TEMPERATURE_OFFSET_C
         self._pv_boost = False
-        self._heating_available = True
+        self._trv_active = True
         self._window_open = False
         self._active_heat_mode = HeatMode.ECO
 
@@ -49,8 +49,8 @@ class HeatingStateController:
     def set_pv_boost(self, value: bool) -> None:
         self._pv_boost = value
 
-    def set_heating_available(self, value: bool) -> None:
-        self._heating_available = value
+    def set_trv_active(self, value: bool) -> None:
+        self._trv_active = value
 
     def set_active_heat_mode(self, heat_mode: HeatMode) -> None:
         self._active_heat_mode = heat_mode
@@ -66,18 +66,18 @@ class HeatingStateController:
             return False
         return all(self._comfort_conditions.values())
 
-    def automatic_mode_selection_allowed(self, active: bool, blocked: bool) -> bool:
-        return active and not blocked and not self._window_open
+    def automatic_mode_selection_allowed(self, blocked: bool) -> bool:
+        return not blocked and not self._window_open
 
-    def desired_automatic_heat_mode(self, active: bool, blocked: bool) -> HeatMode:
-        if not self.automatic_mode_selection_allowed(active, blocked):
+    def desired_automatic_heat_mode(self, blocked: bool) -> HeatMode:
+        if not self.automatic_mode_selection_allowed(blocked):
             return self._active_heat_mode
         return HeatMode.COMFORT if self.is_comfort() else HeatMode.ECO
 
     def should_force_frost_protection(self, blocked: bool) -> bool:
         if blocked:
             return False
-        return self._window_open or not self._heating_available
+        return self._window_open or not self._trv_active
 
     def resolve_display_mode(self, blocked: bool) -> HeatMode:
         if self.should_force_frost_protection(blocked):
@@ -112,8 +112,8 @@ class HeatingStateController:
         return self._window_open
 
     @property
-    def is_heating_available(self) -> bool:
-        return self._heating_available
+    def is_trv_active(self) -> bool:
+        return self._trv_active
 
     @property
     def is_pv_boost_active(self) -> bool:

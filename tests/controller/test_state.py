@@ -31,14 +31,10 @@ def test_is_comfort_false_when_any_condition_false():
 def test_desired_automatic_heat_mode_follows_comfort_condition():
     controller = make_controller()
     controller.set_comfort_condition("global_release", True)
-    assert controller.desired_automatic_heat_mode(active=True, blocked=False) == (
-        HeatMode.COMFORT
-    )
+    assert controller.desired_automatic_heat_mode(blocked=False) == HeatMode.COMFORT
 
     controller.set_comfort_condition("global_release", False)
-    assert controller.desired_automatic_heat_mode(active=True, blocked=False) == (
-        HeatMode.ECO
-    )
+    assert controller.desired_automatic_heat_mode(blocked=False) == HeatMode.ECO
 
 
 def test_desired_automatic_heat_mode_keeps_current_when_not_allowed():
@@ -46,20 +42,17 @@ def test_desired_automatic_heat_mode_keeps_current_when_not_allowed():
     controller.set_active_heat_mode(HeatMode.BOOST)
     controller.set_comfort_condition("global_release", True)
 
-    assert controller.desired_automatic_heat_mode(active=False, blocked=False) == (
-        HeatMode.BOOST
-    )
-    assert controller.desired_automatic_heat_mode(active=True, blocked=True) == (
-        HeatMode.BOOST
-    )
+    controller.update_window_state("a", True)
+    assert controller.desired_automatic_heat_mode(blocked=False) == HeatMode.BOOST
+
+    controller.update_window_state("a", False)
+    assert controller.desired_automatic_heat_mode(blocked=True) == HeatMode.BOOST
 
 
 def test_window_open_blocks_automatic_mode_selection():
     controller = make_controller()
     controller.update_window_state("kitchen", True)
-    assert controller.automatic_mode_selection_allowed(active=True, blocked=False) is (
-        False
-    )
+    assert controller.automatic_mode_selection_allowed(blocked=False) is False
 
 
 def test_update_window_state_is_or_combined_across_topics():
@@ -82,7 +75,7 @@ def test_should_force_frost_protection_on_open_window_or_no_heating():
     assert controller.should_force_frost_protection(blocked=False) is True
 
     controller.update_window_state("a", False)
-    controller.set_heating_available(False)
+    controller.set_trv_active(False)
     assert controller.should_force_frost_protection(blocked=False) is True
 
 
@@ -100,7 +93,7 @@ def test_blocked_bypasses_forced_frost_protection_regardless_of_chosen_mode():
     # protection itself, scenario 3 in the reported spec).
     controller = make_controller()
     controller.update_window_state("a", True)
-    controller.set_heating_available(False)
+    controller.set_trv_active(False)
 
     assert controller.should_force_frost_protection(blocked=False) is True
     assert controller.should_force_frost_protection(blocked=True) is False
@@ -117,7 +110,7 @@ def test_unblocking_reasserts_forced_frost_protection_if_still_applicable():
     # which re-forces frost protection if window/heating conditions still
     # call for it.
     controller = make_controller()
-    controller.set_heating_available(False)
+    controller.set_trv_active(False)
     controller.set_active_heat_mode(HeatMode.COMFORT)
 
     assert controller.resolve_display_mode(blocked=True) == HeatMode.COMFORT
@@ -158,6 +151,6 @@ def test_initial_state_defaults():
     controller = make_controller()
     assert controller.is_comfort() is False
     assert controller.is_window_open is False
-    assert controller.is_heating_available is True
+    assert controller.is_trv_active is True
     assert controller.is_pv_boost_active is False
     assert controller.current_heat_mode == HeatMode.ECO

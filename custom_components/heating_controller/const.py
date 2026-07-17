@@ -6,8 +6,11 @@ DOMAIN = "heating_controller"
 
 DEFAULT_COMFORT_TEMPERATURE_C = 22.0
 DEFAULT_ECO_TEMPERATURE_OFFSET_C = -2.0
+DEFAULT_FLOW_THRESHOLD_C = 30.0
 
 MAX_TRV_COUNT = 3
+
+HEAT_SOURCE_ACTIVE_STATE = "heat"
 
 CONF_ROOM_NAME = "room_name"
 CONF_TRV_COUNT = "trv_count"
@@ -21,13 +24,14 @@ CONF_TRV_RADIATOR_TYPE = "radiator_type"
 CONF_TRV_WIDTH_MM = "width_mm"
 CONF_TRV_HEIGHT_MM = "height_mm"
 CONF_TRV_NOMINAL_POWER_W = "nominal_power_w"
+CONF_TRV_ACTIVE_SWITCH = "trv_active_switch"
 
 CONF_ROOM_SENSOR_ENTITY = "room_sensor_entity"
 CONF_WINDOW_CONTACT_ENTITIES = "window_contact_entities"
 CONF_COMFORT_CONDITION_ENTITIES = "comfort_condition_entities"
 CONF_OUTDOOR_TEMPERATURE_ENTITY = "outdoor_temperature_entity"
-CONF_FLOW_TEMPERATURE_ENTITY = "flow_temperature_entity"
-CONF_HEATING_AVAILABLE_ENTITY = "heating_available_entity"
+CONF_HEAT_SOURCE_CLIMATE_ENTITY = "heat_source_climate_entity"
+CONF_FLOW_THRESHOLD = "flow_threshold_c"
 CONF_PV_BOOST_ENTITY = "pv_boost_entity"
 
 CONF_BOOST_ENABLED = "boost_enabled"

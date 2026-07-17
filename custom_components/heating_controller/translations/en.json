@@ -13,6 +13,7 @@
         "title": "TRV {index}",
         "data": {
           "entity_id": "TRV climate entity",
+          "trv_active_switch": "TRV active switch (optional)",
           "emitter_type": "Emitter type",
           "min_target_temperature_c": "Minimum target temperature (°C)",
           "max_target_temperature_c": "Maximum target temperature (°C)",
@@ -35,8 +36,7 @@
           "window_contact_entities": "Window contacts",
           "comfort_condition_entities": "Comfort condition entities",
           "outdoor_temperature_entity": "Outdoor temperature sensor",
-          "flow_temperature_entity": "Flow temperature sensor",
-          "heating_available_entity": "Heating available entity",
+          "heat_source_climate_entity": "Heat source climate entity",
           "pv_boost_entity": "PV boost entity"
         }
       },
@@ -61,7 +61,8 @@
           "mpc_hold_time_s": "Hold time (s)",
           "mpc_hold_override_demand_pct": "Hold override demand (%)",
           "mpc_max_demand_step_pct": "Max demand step per cycle (%)",
-          "max_sensor_age_s": "Max sensor age (s)"
+          "max_sensor_age_s": "Max sensor age (s)",
+          "flow_threshold_c": "Heat-source flow threshold (°C)"
         }
       }
     },
@@ -78,8 +79,7 @@
           "window_contact_entities": "Window contacts",
           "comfort_condition_entities": "Comfort condition entities",
           "outdoor_temperature_entity": "Outdoor temperature sensor",
-          "flow_temperature_entity": "Flow temperature sensor",
-          "heating_available_entity": "Heating available entity",
+          "heat_source_climate_entity": "Heat source climate entity",
           "pv_boost_entity": "PV boost entity"
         }
       },
@@ -104,7 +104,8 @@
           "mpc_hold_time_s": "Hold time (s)",
           "mpc_hold_override_demand_pct": "Hold override demand (%)",
           "mpc_max_demand_step_pct": "Max demand step per cycle (%)",
-          "max_sensor_age_s": "Max sensor age (s)"
+          "max_sensor_age_s": "Max sensor age (s)",
+          "flow_threshold_c": "Heat-source flow threshold (°C)"
         }
       }
     }

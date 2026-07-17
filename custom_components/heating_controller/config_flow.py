@@ -15,9 +15,9 @@ from .const import (
     CONF_DESIGN_INDOOR_TEMPERATURE,
     CONF_DESIGN_OUTDOOR_TEMPERATURE,
     CONF_DESIGN_TEMPERATURE_SYSTEM,
-    CONF_FLOW_TEMPERATURE_ENTITY,
+    CONF_FLOW_THRESHOLD,
     CONF_FROST_PROTECTION_TEMPERATURE,
-    CONF_HEATING_AVAILABLE_ENTITY,
+    CONF_HEAT_SOURCE_CLIMATE_ENTITY,
     CONF_MAX_SENSOR_AGE,
     CONF_MPC_DEMAND_HYSTERESIS_PCT,
     CONF_MPC_HOLD_OVERRIDE_DEMAND_PCT,
@@ -30,6 +30,7 @@ from .const import (
     CONF_ROOM_HEAT_LOAD,
     CONF_ROOM_NAME,
     CONF_ROOM_SENSOR_ENTITY,
+    CONF_TRV_ACTIVE_SWITCH,
     CONF_TRV_COUNT,
     CONF_TRV_EMITTER_TYPE,
     CONF_TRV_ENTITY_ID,
@@ -42,6 +43,7 @@ from .const import (
     CONF_TRV_WIDTH_MM,
     CONF_TRVS,
     CONF_WINDOW_CONTACT_ENTITIES,
+    DEFAULT_FLOW_THRESHOLD_C,
     DOMAIN,
     DesignTemperatureSystem,
     HeatEmitterType,
@@ -60,6 +62,9 @@ def _trv_step_schema() -> vol.Schema:
         {
             vol.Required(CONF_TRV_ENTITY_ID): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="climate")
+            ),
+            vol.Optional(CONF_TRV_ACTIVE_SWITCH): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch")
             ),
             vol.Required(
                 CONF_TRV_EMITTER_TYPE, default=HeatEmitterType.PANEL
@@ -146,16 +151,9 @@ def _entities_schema(defaults: dict[str, Any]) -> vol.Schema:
                     )
                 )
             ),
-            _marker(vol.Required, CONF_FLOW_TEMPERATURE_ENTITY, defaults): (
+            _marker(vol.Required, CONF_HEAT_SOURCE_CLIMATE_ENTITY, defaults): (
                 selector.EntitySelector(
-                    selector.EntitySelectorConfig(
-                        domain="sensor", device_class="temperature"
-                    )
-                )
-            ),
-            _marker(vol.Required, CONF_HEATING_AVAILABLE_ENTITY, defaults): (
-                selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain=_BOOLEAN_SIGNAL_DOMAINS)
+                    selector.EntitySelectorConfig(domain="climate")
                 )
             ),
             _marker(vol.Required, CONF_PV_BOOST_ENTITY, defaults): (
@@ -237,6 +235,10 @@ def _mpc_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): vol.Coerce(float),
             vol.Required(
                 CONF_MAX_SENSOR_AGE, default=defaults.get(CONF_MAX_SENSOR_AGE, 1800.0)
+            ): vol.Coerce(float),
+            vol.Required(
+                CONF_FLOW_THRESHOLD,
+                default=defaults.get(CONF_FLOW_THRESHOLD, DEFAULT_FLOW_THRESHOLD_C),
             ): vol.Coerce(float),
         }
     )

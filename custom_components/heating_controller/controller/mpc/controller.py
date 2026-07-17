@@ -94,7 +94,9 @@ class RoomMpcController:
     def set_flow_temperature(self, value: float | None) -> None:
         self._sensors.set_flow_temperature(value)
 
-    def compute(self, target_temperature_c: float) -> RoomMpcComputeResult:
+    def compute(
+        self, target_temperature_c: float, apply_side_effects: bool = True
+    ) -> RoomMpcComputeResult:
         input_result = self._sensors.create_input(target_temperature_c)
         if not input_result.valid:
             return RoomMpcComputeResult(valid=False, error=input_result.error)
@@ -109,9 +111,12 @@ class RoomMpcController:
         )
 
         optimal_demand = self._find_optimal_demand_prediction(mpc_input)
-        stabilized_demand_pct = self._apply_demand_rate_limiting(
-            mpc_input, optimal_demand.demand_pct
-        )
+        if apply_side_effects:
+            stabilized_demand_pct = self._apply_demand_rate_limiting(
+                mpc_input, optimal_demand.demand_pct
+            )
+        else:
+            stabilized_demand_pct = optimal_demand.demand_pct
 
         requested_heating_power_w = round_to_step(
             available_heating_power_w * (stabilized_demand_pct / 100), 0.01
@@ -123,9 +128,12 @@ class RoomMpcController:
             )
         )
 
-        self._record_learning_telemetry(
-            mpc_input, requested_heating_power_w, optimal_demand.predicted_temperature_c
-        )
+        if apply_side_effects:
+            self._record_learning_telemetry(
+                mpc_input,
+                requested_heating_power_w,
+                optimal_demand.predicted_temperature_c,
+            )
 
         result = RoomMpcResult(
             trv_targets=self._emitter_model.calculate_target_temperatures(
