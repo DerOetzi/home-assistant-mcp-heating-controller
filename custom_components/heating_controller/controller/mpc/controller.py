@@ -122,10 +122,8 @@ class RoomMpcController:
             available_heating_power_w * (stabilized_demand_pct / 100), 0.01
         )
 
-        recommended_flow_temperature_c = (
-            self._emitter_model.calculate_recommended_flow_temperature_c(
-                requested_heating_power_w, mpc_input.room_temp_c
-            )
+        recommended_flow_temperature_c = self._calculate_recommended_flow_temperature_c(
+            mpc_input, requested_heating_power_w
         )
 
         if apply_side_effects:
@@ -146,6 +144,32 @@ class RoomMpcController:
             recommended_flow_temperature_c=recommended_flow_temperature_c,
         )
         return RoomMpcComputeResult(valid=True, result=result)
+
+    def _calculate_recommended_flow_temperature_c(
+        self, mpc_input: RoomMpcInput, requested_heating_power_w: float
+    ) -> float:
+        is_coasting = (
+            mpc_input.room_temp_c > mpc_input.target_temp_c
+            and mpc_input.room_temp_c > mpc_input.outdoor_temp_c
+        )
+        hold_flow_c = 0.0
+        if not is_coasting:
+            hold_power_w = max(
+                0.0,
+                self._loss_model.calculate_heat_loss_w(
+                    mpc_input.target_temp_c, mpc_input.outdoor_temp_c
+                ),
+            )
+            
+            hold_flow_c = self._emitter_model.calculate_recommended_flow_temperature_c(
+                hold_power_w, mpc_input.target_temp_c
+            )
+
+        requested_flow_c = self._emitter_model.calculate_recommended_flow_temperature_c(
+            requested_heating_power_w, mpc_input.room_temp_c
+        )
+
+        return max(hold_flow_c, requested_flow_c)
 
     def _find_optimal_demand_prediction(self, mpc_input: RoomMpcInput) -> _DemandPrediction:
         best = _DemandPrediction(
