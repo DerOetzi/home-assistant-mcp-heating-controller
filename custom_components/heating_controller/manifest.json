@@ -3,7 +3,7 @@
   "name": "Heating Controller",
   "codeowners": ["@DerOetzi"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["frontend", "http"],
   "documentation": "https://github.com/DerOetzi/home-assistant-mcp-heating-controller",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/DerOetzi/home-assistant-mcp-heating-controller/issues",

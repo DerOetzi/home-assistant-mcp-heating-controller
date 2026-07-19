@@ -5,6 +5,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import entity_registry as er, target
 
+from . import frontend
 from .const import CONF_ROOM_NAME, DOMAIN, SERVICE_UNBLOCK
 from .coordinator import HeatingRoomCoordinator
 from .store import LearningFactorsStore
@@ -21,6 +22,8 @@ PLATFORMS = [
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    await frontend.async_setup(hass)
+
     coordinator = HeatingRoomCoordinator(hass, entry)
     await coordinator.async_setup()
 

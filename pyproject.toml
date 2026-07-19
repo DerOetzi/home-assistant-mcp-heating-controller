@@ -7,7 +7,19 @@ license = { text = "MIT" }
 dependencies = []
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-asyncio", "pytest-homeassistant-custom-component"]
+test = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-homeassistant-custom-component",
+    # The manifest depends on the frontend component (the integration ships a
+    # Lovelace card), and setting that component up needs the real frontend
+    # package — pytest-homeassistant-custom-component does not pull it in.
+    "home-assistant-frontend",
+    # Runs the shipped Lovelace card in a real JS engine (ES2020, so it
+    # understands ?. and ?? — esprima does not). Catches syntax errors that
+    # would otherwise only show up as "custom element not found" in a browser.
+    "quickjs",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
