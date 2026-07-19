@@ -37,11 +37,11 @@ class HeatingAutomationBinarySensor(HeatingControllerEntity, BinarySensorEntity)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        # Public API for the Lovelace card: it renders the window elements from
-        # this list instead of making the user re-enter contacts already
-        # configured in the config flow. See docs/card-design.md.
         return {
             "window_contact_entities": list(
                 self._coordinator.data.get(CONF_WINDOW_CONTACT_ENTITIES, [])
-            )
+            ),
+            "comfort_condition_entities": list(
+                self._coordinator.room_comfort_condition_entities
+            ),
         }

@@ -34,7 +34,8 @@
         "data": {
           "room_sensor_entity": "Raumtemperatursensor (optional)",
           "window_contact_entities": "Fensterkontakte",
-          "comfort_condition_entities": "Komfort-Bedingungs-Entities",
+          "comfort_condition_entities": "Komfort-Bedingungs-Entities (global)",
+          "room_comfort_condition_entities": "Raumspezifische Komfort-Bedingungs-Entities",
           "outdoor_temperature_entity": "Außentemperatursensor",
           "heat_source_climate_entity": "Wärmeerzeuger-Climate-Entity",
           "pv_boost_entity": "PV-Überschuss-Entity"
@@ -97,7 +98,8 @@
         "data": {
           "room_sensor_entity": "Raumtemperatursensor (optional)",
           "window_contact_entities": "Fensterkontakte",
-          "comfort_condition_entities": "Komfort-Bedingungs-Entities",
+          "comfort_condition_entities": "Komfort-Bedingungs-Entities (global)",
+          "room_comfort_condition_entities": "Raumspezifische Komfort-Bedingungs-Entities",
           "outdoor_temperature_entity": "Außentemperatursensor",
           "heat_source_climate_entity": "Wärmeerzeuger-Climate-Entity",
           "pv_boost_entity": "PV-Überschuss-Entity"

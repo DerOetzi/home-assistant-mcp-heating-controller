@@ -29,6 +29,7 @@ from .const import (
     CONF_PV_BOOST_ENABLED,
     CONF_PV_BOOST_ENTITY,
     CONF_PV_BOOST_TEMPERATURE_OFFSET,
+    CONF_ROOM_COMFORT_CONDITION_ENTITIES,
     CONF_ROOM_HEAT_LOAD,
     CONF_ROOM_NAME,
     CONF_ROOM_SENSOR_ENTITY,
@@ -108,6 +109,14 @@ class HeatingRoomCoordinator:
             for trv in self._trv_entries
             if trv.get(CONF_TRV_ACTIVE_SWITCH)
         ]
+        self.room_comfort_condition_entities: list[str] = list(
+            self.data.get(CONF_ROOM_COMFORT_CONDITION_ENTITIES, [])
+        )
+        self._comfort_condition_entities: list[str] = [
+            *self.data[CONF_COMFORT_CONDITION_ENTITIES],
+            *self.room_comfort_condition_entities,
+        ]
+
         self._heat_source_climate_entity: str | None = self.data.get(
             CONF_HEAT_SOURCE_CLIMATE_ENTITY
         )
@@ -174,7 +183,7 @@ class HeatingRoomCoordinator:
         else:
             await self._async_import_legacy_learning_factors()
 
-        for entity_id in self.data[CONF_COMFORT_CONDITION_ENTITIES]:
+        for entity_id in self._comfort_condition_entities:
             self.state.set_comfort_condition(entity_id, self._is_on(entity_id))
 
         for entity_id in self.data.get(CONF_WINDOW_CONTACT_ENTITIES, []):
@@ -187,7 +196,7 @@ class HeatingRoomCoordinator:
         room_sensor_entity = self.data.get(CONF_ROOM_SENSOR_ENTITY)
 
         tracked_entities = list(self._trv_entity_ids)
-        tracked_entities.extend(self.data[CONF_COMFORT_CONDITION_ENTITIES])
+        tracked_entities.extend(self._comfort_condition_entities)
         tracked_entities.extend(self.data.get(CONF_WINDOW_CONTACT_ENTITIES, []))
         tracked_entities.append(self.data[CONF_PV_BOOST_ENTITY])
         tracked_entities.append(self.data[CONF_OUTDOOR_TEMPERATURE_ENTITY])
@@ -342,7 +351,7 @@ class HeatingRoomCoordinator:
                 self._climate_temperature_from_state(new_state)
             )
 
-        elif entity_id in self.data[CONF_COMFORT_CONDITION_ENTITIES]:
+        elif entity_id in self._comfort_condition_entities:
             self.state.set_comfort_condition(
                 entity_id, self._bool_from_state(new_state)
             )

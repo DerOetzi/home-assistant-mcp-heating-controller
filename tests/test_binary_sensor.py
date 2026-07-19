@@ -54,3 +54,31 @@ async def test_window_contacts_present_when_key_missing(hass: HomeAssistant) -> 
     state = hass.states.get("binary_sensor.wohnzimmer_heating_automation")
     assert state is not None
     assert state.attributes["window_contact_entities"] == []
+
+
+async def test_exposes_only_room_specific_comfort_conditions(
+    hass: HomeAssistant,
+) -> None:
+    # The house-wide switch lives in comfort_condition_entities and must not
+    # show up in the card; only the room-specific one does.
+    data = {
+        **ENTRY_DATA,
+        "room_comfort_condition_entities": ["input_boolean.gast_zu_besuch"],
+    }
+    await _setup(hass, data)
+
+    state = hass.states.get("binary_sensor.wohnzimmer_heating_automation")
+    assert state is not None
+    assert state.attributes["comfort_condition_entities"] == [
+        "input_boolean.gast_zu_besuch"
+    ]
+
+
+async def test_comfort_conditions_empty_when_key_missing(hass: HomeAssistant) -> None:
+    # Entries created before the split have no room-specific list at all.
+    assert "room_comfort_condition_entities" not in ENTRY_DATA
+    await _setup(hass, ENTRY_DATA)
+
+    state = hass.states.get("binary_sensor.wohnzimmer_heating_automation")
+    assert state is not None
+    assert state.attributes["comfort_condition_entities"] == []

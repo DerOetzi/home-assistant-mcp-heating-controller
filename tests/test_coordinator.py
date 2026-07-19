@@ -453,3 +453,36 @@ async def test_legacy_learning_factors_imported_from_room_prefixed_text_entities
     assert saved.capacity_factor == 1.0074397084454827
 
     coordinator.async_unload()
+
+
+async def test_room_comfort_conditions_gate_comfort_like_global_ones(
+    hass: HomeAssistant,
+) -> None:
+    """Room-specific conditions are split out only for the card's benefit;
+    for the control logic they are AND-ed with the global ones like before."""
+    _seed_entities(hass)
+    hass.states.async_set("switch.arbeitszimmer_aktiv", "off")
+
+    data = {
+        **ENTRY_DATA,
+        "room_comfort_condition_entities": ["switch.arbeitszimmer_aktiv"],
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=data)
+    entry.add_to_hass(hass)
+
+    coordinator = HeatingRoomCoordinator(hass, entry)
+    _register_fake_climate_set_temperature(hass)
+    await coordinator.async_setup()
+
+    # Global condition is on, room-specific one is off -> no comfort.
+    assert coordinator.state.is_comfort() is False
+
+    hass.states.async_set("switch.arbeitszimmer_aktiv", "on")
+    await hass.async_block_till_done()
+    assert coordinator.state.is_comfort() is True
+
+    hass.states.async_set("switch.arbeitszimmer_aktiv", "off")
+    await hass.async_block_till_done()
+    assert coordinator.state.is_comfort() is False
+
+    coordinator.async_unload()

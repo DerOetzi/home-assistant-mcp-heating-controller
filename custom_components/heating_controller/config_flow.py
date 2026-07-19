@@ -27,6 +27,7 @@ from .const import (
     CONF_PV_BOOST_ENABLED,
     CONF_PV_BOOST_ENTITY,
     CONF_PV_BOOST_TEMPERATURE_OFFSET,
+    CONF_ROOM_COMFORT_CONDITION_ENTITIES,
     CONF_ROOM_HEAT_LOAD,
     CONF_ROOM_NAME,
     CONF_ROOM_SENSOR_ENTITY,
@@ -161,6 +162,14 @@ def _entities_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_COMFORT_CONDITION_ENTITIES,
                 default=defaults.get(CONF_COMFORT_CONDITION_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=_BOOLEAN_SIGNAL_DOMAINS + ["schedule"], multiple=True
+                )
+            ),
+            vol.Optional(
+                CONF_ROOM_COMFORT_CONDITION_ENTITIES,
+                default=defaults.get(CONF_ROOM_COMFORT_CONDITION_ENTITIES, []),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain=_BOOLEAN_SIGNAL_DOMAINS + ["schedule"], multiple=True

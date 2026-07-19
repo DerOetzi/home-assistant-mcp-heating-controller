@@ -34,7 +34,8 @@
         "data": {
           "room_sensor_entity": "Room temperature sensor (optional)",
           "window_contact_entities": "Window contacts",
-          "comfort_condition_entities": "Comfort condition entities",
+          "comfort_condition_entities": "Comfort condition entities (global)",
+          "room_comfort_condition_entities": "Room-specific comfort condition entities",
           "outdoor_temperature_entity": "Outdoor temperature sensor",
           "heat_source_climate_entity": "Heat source climate entity",
           "pv_boost_entity": "PV boost entity"
@@ -97,7 +98,8 @@
         "data": {
           "room_sensor_entity": "Room temperature sensor (optional)",
           "window_contact_entities": "Window contacts",
-          "comfort_condition_entities": "Comfort condition entities",
+          "comfort_condition_entities": "Comfort condition entities (global)",
+          "room_comfort_condition_entities": "Room-specific comfort condition entities",
           "outdoor_temperature_entity": "Outdoor temperature sensor",
           "heat_source_climate_entity": "Heat source climate entity",
           "pv_boost_entity": "PV boost entity"
