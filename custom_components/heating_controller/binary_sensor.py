@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
@@ -9,7 +11,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import CONF_WINDOW_CONTACT_ENTITIES, DOMAIN
 from .coordinator import HeatingRoomCoordinator
 from .entity import HeatingControllerEntity
 
@@ -32,3 +34,14 @@ class HeatingAutomationBinarySensor(HeatingControllerEntity, BinarySensorEntity)
     @property
     def is_on(self) -> bool:
         return self._coordinator.is_automation_active
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        # Public API for the Lovelace card: it renders the window elements from
+        # this list instead of making the user re-enter contacts already
+        # configured in the config flow. See docs/card-design.md.
+        return {
+            "window_contact_entities": list(
+                self._coordinator.data.get(CONF_WINDOW_CONTACT_ENTITIES, [])
+            )
+        }
