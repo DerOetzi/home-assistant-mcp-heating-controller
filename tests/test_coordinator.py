@@ -6,7 +6,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from heating_controller.const import DOMAIN, HeatMode
+from heating_controller.const import DOMAIN, FlowSupplyStatus, HeatMode
 from heating_controller.coordinator import HeatingRoomCoordinator
 
 ENTRY_DATA = {
@@ -371,19 +371,23 @@ async def test_min_flow_reports_normal_mode_demand_while_forced_frost(
         coordinator.base_temperature_c
         == ENTRY_DATA["frost_protection_temperature_c"]
     )
-    # Heat source off: the requirement stands, the verdict is not answerable.
+    # Heat source off but the requirement is real and above the threshold:
+    # whether it is met cannot be judged from a source that isn't running.
     assert coordinator.trv_active is False
-    assert coordinator.is_sufficiently_supplied is None
+    assert coordinator.flow_supply_status == FlowSupplyStatus.SOURCE_INACTIVE
 
     coordinator.async_unload()
 
 
-async def test_sufficiently_supplied_compares_only_while_heat_source_runs(
+async def test_flow_supply_status_undersupplied_when_running_below_requirement(
     hass: HomeAssistant,
 ) -> None:
-    # Heat source running but its flow below the room's requirement -- this is
-    # the only situation in which "undersupplied" carries information.
+    # Room already at target and outdoor cold: the hold branch alone decides,
+    # so the requirement is stable regardless of the current flow -- unlike the
+    # requested branch, which reacts to the room still catching up.
     _seed_entities(hass, flow_temp=31.0)
+    hass.states.async_set("sensor.outdoor_temperature", "5.0")
+    hass.states.async_set("sensor.wohnzimmer_temperatur", "22.0")
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)
 
@@ -394,17 +398,39 @@ async def test_sufficiently_supplied_compares_only_while_heat_source_runs(
     assert coordinator.trv_active is True
     required = coordinator.normal_min_flow_temperature_c
     assert required is not None and required > 31.0
-    assert coordinator.is_sufficiently_supplied is False
+    assert coordinator.flow_supply_status == FlowSupplyStatus.UNDERSUPPLIED
 
     coordinator.async_unload()
 
 
-async def test_below_operating_threshold_flags_a_never_binding_requirement(
+async def test_flow_supply_status_sufficient_when_flow_covers_requirement(
+    hass: HomeAssistant,
+) -> None:
+    # Same stable requirement as the undersupplied case, but with flow above it.
+    _seed_entities(hass, flow_temp=60.0)
+    hass.states.async_set("sensor.outdoor_temperature", "5.0")
+    hass.states.async_set("sensor.wohnzimmer_temperatur", "22.0")
+    entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
+    entry.add_to_hass(hass)
+
+    coordinator = HeatingRoomCoordinator(hass, entry)
+    _register_fake_climate_set_temperature(hass)
+    await coordinator.async_setup()
+
+    assert coordinator.trv_active is True
+    required = coordinator.normal_min_flow_temperature_c
+    assert required is not None and required < 60.0
+    assert coordinator.flow_supply_status == FlowSupplyStatus.SUFFICIENT
+
+    coordinator.async_unload()
+
+
+async def test_flow_supply_status_below_threshold_for_a_never_binding_requirement(
     hass: HomeAssistant,
 ) -> None:
     # Mild weather: the room still has a requirement, but one the heat source
-    # is always above whenever it runs at all. It must stay readable as a
-    # number and be flagged, not collapsed to 0.
+    # is always above whenever it runs at all. Below-threshold outranks
+    # whether the source happens to be running.
     _seed_entities(hass)
     hass.states.async_set("sensor.outdoor_temperature", "19.5")
     # At target, so the hold branch alone decides and the requested branch
@@ -420,7 +446,7 @@ async def test_below_operating_threshold_flags_a_never_binding_requirement(
     required = coordinator.normal_min_flow_temperature_c
     assert required is not None
     assert 0 < required < ENTRY_DATA["flow_threshold_c"]
-    assert coordinator.is_below_operating_threshold is True
+    assert coordinator.flow_supply_status == FlowSupplyStatus.BELOW_THRESHOLD
     # The basis the value was computed from must be readable alongside it.
     assert coordinator.normal_heat_mode == HeatMode.COMFORT
     assert coordinator.normal_target_temperature_c == 22.0
@@ -428,10 +454,12 @@ async def test_below_operating_threshold_flags_a_never_binding_requirement(
     coordinator.async_unload()
 
 
-async def test_below_operating_threshold_false_when_requirement_binds(
+async def test_flow_supply_status_no_requirement_when_ambient_holds_target(
     hass: HomeAssistant,
 ) -> None:
     _seed_entities(hass)
+    hass.states.async_set("sensor.outdoor_temperature", "24.0")
+    hass.states.async_set("sensor.wohnzimmer_temperatur", "24.0")
     entry = MockConfigEntry(domain=DOMAIN, data=ENTRY_DATA)
     entry.add_to_hass(hass)
 
@@ -439,8 +467,8 @@ async def test_below_operating_threshold_false_when_requirement_binds(
     _register_fake_climate_set_temperature(hass)
     await coordinator.async_setup()
 
-    assert coordinator.normal_min_flow_temperature_c > ENTRY_DATA["flow_threshold_c"]
-    assert coordinator.is_below_operating_threshold is False
+    assert coordinator.normal_min_flow_temperature_c == 0
+    assert coordinator.flow_supply_status == FlowSupplyStatus.NO_REQUIREMENT
 
     coordinator.async_unload()
 

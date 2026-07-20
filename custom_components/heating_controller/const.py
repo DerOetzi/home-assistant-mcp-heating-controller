@@ -63,6 +63,21 @@ class HeatMode(StrEnum):
     FROST_PROTECTION = "frost_protection"
 
 
+class FlowSupplyStatus(StrEnum):
+    """The minimum-flow-temperature sensor's situation, in one value.
+
+    Replaces comparing sufficiently_supplied/below_operating_threshold
+    separately -- those alone cannot tell "no requirement" from "requirement
+    exists but can never bind" from "source isn't even running".
+    """
+
+    NO_REQUIREMENT = "no_requirement"
+    BELOW_THRESHOLD = "below_threshold"
+    SOURCE_INACTIVE = "source_inactive"
+    UNDERSUPPLIED = "undersupplied"
+    SUFFICIENT = "sufficient"
+
+
 class HeatEmitterType(StrEnum):
     PANEL = "panel"
     TOWEL = "towel"

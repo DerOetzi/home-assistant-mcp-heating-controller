@@ -56,10 +56,23 @@ const DEVICE_CLASS_ICONS = {
   temperature: "mdi:thermometer",
 };
 
-const num = (value, digits = 1) => {
+// Formats for the viewer, not for the machine: a German user gets "21,5" and a
+// bare "21" instead of "21.5"/"21.0". `digits` is the maximum, not a fixed
+// width, so trailing zeros disappear. Falls back to the plain number if the
+// runtime has no Intl (which is the case in the QuickJS test harness).
+const num = (value, digits = 1, locale) => {
   const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed.toFixed(digits) : "–";
+  if (!Number.isFinite(parsed)) return "–";
+  const factor = 10 ** digits;
+  const rounded = Math.round(parsed * factor) / factor;
+  try {
+    return rounded.toLocaleString(locale, { maximumFractionDigits: digits });
+  } catch (err) {
+    return String(rounded);
+  }
 };
+
+const localeOf = (hass) => hass?.locale?.language;
 
 const isOn = (stateObj) => stateObj?.state === "on";
 
@@ -102,7 +115,7 @@ const managedDetailRows = (hass, roles) => {
       key: ROOM_SENSOR_KEY,
       name: "Sensor",
       icon: "mdi:thermometer",
-      value: `${num(roomAttrs.room_sensor_temp_c)} °C`,
+      value: `${num(roomAttrs.room_sensor_temp_c, 1, localeOf(hass))} °C`,
       // The raw sensor is an attribute, not a standalone entity; link the row
       // to the room-temperature entity whose more-info shows that value.
       clickEntity: roles.roomTemp?.entity_id,
@@ -121,8 +134,8 @@ const managedDetailRows = (hass, roles) => {
       icon: "mdi:radiator",
       value:
         target != null
-          ? `${num(temp)} °C → ${num(target)} °C`
-          : `${num(temp)} °C`,
+          ? `${num(temp, 1, localeOf(hass))} °C → ${num(target, 1, localeOf(hass))} °C`
+          : `${num(temp, 1, localeOf(hass))} °C`,
     });
   }
 
@@ -321,6 +334,8 @@ class HeatingControllerCard extends HTMLElement {
     if (!this._rendered) {
       this._buildSkeleton();
       this._rendered = true;
+      // Fresh DOM, so no block matches its cached signature any more.
+      this._signatures = {};
       this._applyExpanded();
     }
     this._update(roles);
@@ -356,6 +371,9 @@ class HeatingControllerCard extends HTMLElement {
             <div class="title" id="title"></div>
             <div class="subtitle" id="subtitle"></div>
           </div>
+          <button id="unblock" class="unblock" hidden>
+            <ha-icon icon="mdi:auto-mode"></ha-icon>Entblocken
+          </button>
           <ha-icon id="windowIcon" class="window-icon" icon="mdi:window-open-variant"></ha-icon>
           <ha-icon id="chevron" class="chevron" icon="mdi:chevron-down"></ha-icon>
         </div>
@@ -461,31 +479,123 @@ class HeatingControllerCard extends HTMLElement {
         .row .v { white-space: nowrap; }
         .controls { display: flex; flex-direction: column; gap: 12px; }
         .modes { display: flex; flex-wrap: wrap; gap: 8px; }
+        /* One control, not three buttons: a shared outline, hairline dividers
+           instead of gaps, and rounded ends only on the outer segments. */
+        .segmented {
+          display: flex; overflow: hidden;
+          border: 1px solid var(--divider-color); border-radius: 18px;
+        }
+        button.segment {
+          flex: 1 1 0; min-width: 0; min-height: 44px;
+          display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          border: none; border-left: 1px solid var(--divider-color);
+          background: transparent; color: var(--primary-text-color);
+          padding: 6px 10px; font: inherit; font-size: 0.85rem; cursor: pointer;
+          white-space: nowrap;
+        }
+        button.segment:first-child { border-left: none; }
+        button.segment ha-icon { --mdc-icon-size: 20px; flex: none; }
+        button.segment:hover { background: color-mix(in srgb, var(--seg) 22%, transparent); }
+        button.segment:active { background: color-mix(in srgb, var(--seg) 34%, transparent); }
+        button.segment.active {
+          background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--seg) 78%, black) 0%,
+            var(--seg) 100%
+          );
+          color: #fff;
+        }
         button.chip {
           display: inline-flex; align-items: center; gap: 6px;
           border: 1px solid var(--divider-color); border-radius: 16px;
           background: var(--card-background-color); color: var(--primary-text-color);
           padding: 6px 12px; font: inherit; font-size: 0.85rem; cursor: pointer;
+          min-height: 44px;
         }
         button.chip.active {
           background: var(--primary-color); color: var(--text-primary-color);
           border-color: var(--primary-color);
         }
-        button.chip.blocked { opacity: 0.6; }
-        .setpoints { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
-        .setpoint { display: flex; align-items: center; gap: 8px; }
-        .setpoint input[type="range"] { width: 140px; }
-        .flow { display: flex; justify-content: space-between; font-size: 0.9rem; }
-        .flow .ok { color: var(--success-color, #43a047); }
-        .flow .low { color: var(--warning-color, #ffa600); }
+        button.unblock {
+          flex: none; display: inline-flex; align-items: center; gap: 6px;
+          border: 1px solid var(--warning-color, #ffa600); border-radius: 16px;
+          background: transparent; color: var(--warning-color, #ffa600);
+          padding: 4px 10px; font: inherit; font-size: 0.8rem; cursor: pointer;
+        }
+        /* display above beats the hidden attribute unless this is spelled out. */
+        button.unblock[hidden] { display: none; }
+        button.unblock ha-icon { --mdc-icon-size: 18px; }
+        button.unblock:hover {
+          background: color-mix(in srgb, var(--warning-color, #ffa600) 18%, transparent);
+        }
+        .setpoints { display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; }
+        /* Comfort: the bar IS the value. The left cap stays filled so icon and
+           readout always sit on colour, and dragging starts to the right of it. */
+        .slider {
+          position: relative; flex: 1 1 200px; min-width: 180px; height: 44px;
+          border-radius: 12px; overflow: hidden; cursor: ew-resize;
+          /* Same tint as a segment's hover state (color-mix at 22%) -- the
+             track reads as "comfort, at rest" instead of a generic grey bar. */
+          background: color-mix(in srgb, var(--hc-comfort) 22%, transparent);
+          touch-action: none; user-select: none;
+        }
+        .slider-fill {
+          position: absolute; inset: 0 auto 0 0;
+          background: linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--hc-comfort) 78%, black) 0%,
+            var(--hc-comfort) 100%
+          );
+        }
+        .slider-label {
+          position: absolute; inset: 0; display: flex; align-items: center; gap: 8px;
+          padding-left: 12px; color: #fff; font-size: 0.95rem; font-weight: 500;
+          pointer-events: none;
+        }
+        .slider-label ha-icon { --mdc-icon-size: 20px; }
+        /* Eco: coarse values, so a stepper beats a text field. */
+        .stepper {
+          flex: 0 0 auto; display: flex; align-items: center; height: 44px;
+          border-radius: 12px; overflow: hidden;
+          background: color-mix(in srgb, var(--hc-eco) 22%, transparent);
+          border: 1px solid color-mix(in srgb, var(--hc-eco) 55%, transparent);
+        }
+        .stepper button {
+          width: 40px; height: 100%; border: none; background: transparent;
+          color: var(--hc-eco); font: inherit; font-size: 1.2rem; cursor: pointer;
+        }
+        .stepper button:hover:not(:disabled) {
+          background: color-mix(in srgb, var(--hc-eco) 25%, transparent);
+        }
+        .stepper button:disabled { opacity: 0.35; cursor: default; }
+        .stepper span {
+          display: inline-flex; align-items: center; gap: 6px;
+          min-width: 74px; justify-content: center;
+          color: var(--primary-text-color); font-size: 0.95rem; font-weight: 500;
+        }
+        .stepper span ha-icon { --mdc-icon-size: 20px; color: var(--hc-eco); }
+        /* Verdict colours for the minimum-flow row's value span; the row itself
+           is a plain .row (see above). */
+        .ok { color: var(--success-color, #43a047); }
+        .low { color: var(--warning-color, #ffa600); }
         /* Readable but visibly inactive: the number still matters for the
            trend, it just cannot drive the system right now. */
-        .flow .idle { color: var(--secondary-text-color); opacity: 0.6; }
+        .idle { color: var(--secondary-text-color); opacity: 0.6; }
       </style>`;
 
     this.shadowRoot
       .getElementById("header")
       .addEventListener("click", () => this._toggleExpanded());
+
+    // Sits inside the header, which toggles the card -- so it has to keep the
+    // click to itself.
+    this.shadowRoot.getElementById("unblock").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const roles = this._resolveEntities();
+      if (roles.unblock) {
+        this._callService("button", "press", { entity_id: roles.unblock.entity_id });
+      }
+    });
   }
 
   _toggleExpanded() {
@@ -510,6 +620,11 @@ class HeatingControllerCard extends HTMLElement {
     root.getElementById("subtitle").textContent = status.text;
     root.getElementById("windowIcon").hidden = openWindows.length === 0;
 
+    // Only while the automation is blocked -- an always-visible button would
+    // suggest there is something to do when there isn't.
+    const unblock = root.getElementById("unblock");
+    unblock.hidden = isOn(roles.automation) || !roles.unblock;
+
     const icon = root.getElementById("statusIcon");
     if (status.forcedFrost) icon.icon = "mdi:snowflake-alert";
     else if (isOn(roles.automation)) icon.icon = "mdi:auto-mode";
@@ -518,10 +633,27 @@ class HeatingControllerCard extends HTMLElement {
     // both the glyph and the disc behind it — same split as the old card.
     icon.style.setProperty("--hc-mode-color", MODE_COLORS[roles.mode.state] ?? "");
 
-    this._updateHeaderValues(roles);
-    this._updateBoost(roles);
-    this._updateDetails(roles);
-    this._updateControls(roles);
+    // hass is reassigned on every state change anywhere in Home Assistant, many
+    // times a minute. Rebuilding a block then throws away the element the mouse
+    // is over (the hover flickers) and the element a finger is dragging (the
+    // slider dies mid-gesture). So each block is only rebuilt when what it
+    // renders actually changed.
+    this._rebuildIf("headerValues", this._headerSignature(roles), () =>
+      this._updateHeaderValues(roles)
+    );
+    this._rebuildIf(
+      "boost",
+      `${roles.mode.state}|${(roles.mode.attributes.options ?? []).join(",")}`,
+      () => this._updateBoost(roles)
+    );
+    this._rebuildIf("details", this._detailSignature(roles), () =>
+      this._updateDetails(roles)
+    );
+    if (!this._dragging) {
+      this._rebuildIf("controls", this._controlSignature(roles), () =>
+        this._updateControls(roles)
+      );
+    }
   }
 
   _valueEl({ entityId, value, unit, label, icon }) {
@@ -547,6 +679,47 @@ class HeatingControllerCard extends HTMLElement {
     return normalizeItems(this._config[key]);
   }
 
+  // A block is rebuilt only when its signature changed. The signature has to
+  // cover everything the block renders -- a value left out of it would freeze
+  // on screen.
+  _rebuildIf(key, signature, build) {
+    this._signatures = this._signatures ?? {};
+    if (this._signatures[key] === signature) return;
+    this._signatures[key] = signature;
+    build();
+  }
+
+  _headerSignature(roles) {
+    const parts = [roles.roomTemp?.state];
+    for (const item of this._entityList(HEADER_KEY)) {
+      const stateObj = this._hass.states[item.entity];
+      parts.push(item.entity, item.name, item.icon, stateObj?.state);
+    }
+    return parts.join("|");
+  }
+
+  _detailSignature(roles) {
+    return this._detailRows(roles)
+      .map((row) => `${row.key ?? row.entity}=${row.name}=${row.icon}=${row.value}`)
+      .join("|");
+  }
+
+  _controlSignature(roles) {
+    const flow = roles.minFlow?.attributes ?? {};
+    return [
+      roles.mode.state,
+      (roles.mode.attributes.options ?? []).join(","),
+      roles.automation.state,
+      (roles.automation.attributes.comfort_condition_entities ?? [])
+        .map((id) => `${id}:${this._hass.states[id]?.state}`)
+        .join(","),
+      roles.comfort && this._effectiveValue(roles.comfort),
+      roles.eco && this._effectiveValue(roles.eco),
+      roles.minFlow?.state,
+      flow.supply_status,
+    ].join("|");
+  }
+
   _updateHeaderValues(roles) {
     const container = this.shadowRoot.getElementById("headerValues");
     container.textContent = "";
@@ -554,7 +727,7 @@ class HeatingControllerCard extends HTMLElement {
     container.appendChild(
       this._valueEl({
         entityId: roles.roomTemp?.entity_id,
-        value: num(roles.roomTemp?.state),
+        value: num(roles.roomTemp?.state, 1, localeOf(this._hass)),
         unit: "°C",
         icon: DEVICE_CLASS_ICONS.temperature,
       })
@@ -567,7 +740,7 @@ class HeatingControllerCard extends HTMLElement {
       container.appendChild(
         this._valueEl({
           entityId: item.entity,
-          value: num(stateObj.state, deviceClass === "temperature" ? 1 : 0),
+          value: num(stateObj.state, deviceClass === "temperature" ? 1 : 0, localeOf(this._hass)),
           unit:
             stateObj.attributes.unit_of_measurement ??
             DEVICE_CLASS_UNITS[deviceClass] ??
@@ -636,7 +809,7 @@ class HeatingControllerCard extends HTMLElement {
           entity: entry.entity,
           name: entry.name ?? stateObj.attributes.friendly_name ?? entry.entity,
           icon: entry.icon ?? DEVICE_CLASS_ICONS[stateObj.attributes.device_class],
-          value: `${num(stateObj.state, unit === "%" || unit === "ppm" ? 0 : 1)} ${unit}`,
+          value: `${num(stateObj.state, unit === "%" || unit === "ppm" ? 0 : 1, localeOf(this._hass))} ${unit}`,
         });
       }
     }
@@ -666,32 +839,22 @@ class HeatingControllerCard extends HTMLElement {
     const container = this.shadowRoot.getElementById("controls");
     container.textContent = "";
 
-    // Automation + mode
+    // The modes are one choice, not three switches, so they are rendered as a
+    // single segmented control rather than separate chips. Unblocking lives in
+    // the header: it is not a mode.
     const modeRow = document.createElement("div");
-    modeRow.className = "modes";
-
-    const automationActive = isOn(roles.automation);
-    const autoButton = document.createElement("button");
-    autoButton.className = `chip${automationActive ? " active" : " blocked"}`;
-    autoButton.innerHTML = `<ha-icon icon="mdi:auto-mode"></ha-icon>${
-      automationActive ? "Automatik" : "Entblocken"
-    }`;
-    autoButton.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      if (roles.unblock) {
-        this._callService("button", "press", {
-          entity_id: roles.unblock.entity_id,
-        });
-      }
-    });
-    modeRow.appendChild(autoButton);
+    modeRow.className = "segmented";
 
     const options = roles.mode.attributes.options ?? [];
     const labels = this._modeLabels(roles.mode, options);
     for (const option of options) {
       if (option === "boost") continue; // has its own row
       const button = document.createElement("button");
-      button.className = `chip${roles.mode.state === option ? " active" : ""}`;
+      button.className = `segment${roles.mode.state === option ? " active" : ""}`;
+      // Each segment carries its own mode colour, used for the active gradient
+      // and for the hover tint -- so the colour always names the mode, never
+      // just "selected".
+      button.style.setProperty("--seg", MODE_COLORS[option] ?? "var(--primary-color)");
       button.innerHTML = `<ha-icon icon="${MODE_ICONS[option] ?? ""}"></ha-icon>${
         labels[option] ?? option
       }`;
@@ -733,75 +896,207 @@ class HeatingControllerCard extends HTMLElement {
     // Setpoints
     const setpoints = document.createElement("div");
     setpoints.className = "setpoints";
-    if (roles.comfort) setpoints.appendChild(this._numberControl(roles.comfort, "range"));
-    if (roles.eco) setpoints.appendChild(this._numberControl(roles.eco, "number"));
+    if (roles.comfort) setpoints.appendChild(this._comfortSlider(roles.comfort));
+    if (roles.eco) setpoints.appendChild(this._ecoStepper(roles.eco));
     container.appendChild(setpoints);
 
-    // Minimum flow temperature
+    // Minimum flow temperature — same row styling as a detail sensor (icon,
+    // spelled-out value, 44 px tall, clickable), not a special one-off widget.
     if (roles.minFlow) {
-      // Three cases, deliberately distinguishable at a glance:
-      //   below the operating threshold -> real but never binding: dimmed
-      //   sufficiently_supplied null    -> heat source off, not answerable
-      //   otherwise                     -> the verdict
-      const attrs = roles.minFlow.attributes;
-      const supplied = attrs.sufficiently_supplied;
-      const verdict = attrs.below_operating_threshold
-        ? "idle"
-        : supplied == null
-        ? ""
-        : supplied
-        ? "ok"
-        : "low";
+      const status = roles.minFlow.attributes.supply_status;
+      // The degree figure implies "this is what the source must hit". Three of
+      // the five states can never mean that -- no requirement exists, it could
+      // never bind, or there is no source running to judge against -- so those
+      // read better as words than as a misleading number.
+      const PRESENTATION = {
+        no_requirement: { text: "Keine Anforderung", verdict: "" },
+        below_threshold: { text: "Unter Betriebsschwelle", verdict: "idle" },
+        source_inactive: { text: "Quelle inaktiv", verdict: "idle" },
+        undersupplied: { verdict: "low" },
+        sufficient: { verdict: "ok" },
+      }[status] ?? { verdict: "" };
       const hint = {
-        idle: "Unter der Betriebsschwelle der Wärmepumpe – nie bestimmend",
-        ok: "Vorlauf reicht für diesen Raum",
-        low: "Vorlauf zu niedrig für diesen Raum",
-      }[verdict];
-      const flow = document.createElement("div");
-      flow.className = "flow";
+        no_requirement: "Außentemperatur allein hält das Ziel, kein Vorlauf nötig",
+        below_threshold: "Anforderung liegt unter der Betriebsschwelle der Wärmepumpe – kann nie bestimmend werden",
+        source_inactive: "Wärmepumpe läuft gerade nicht – nicht bewertbar",
+        undersupplied: "Vorlauf zu niedrig für diesen Raum",
+        sufficient: "Vorlauf reicht für diesen Raum",
+      }[status];
+      const value =
+        PRESENTATION.text ??
+        `${num(roles.minFlow.state, 1, localeOf(this._hass))} °C` +
+          (PRESENTATION.verdict === "low" ? " ⚠" : "");
+      const flow = this._row(
+        "Mindestvorlauftemperatur",
+        `<span class="${PRESENTATION.verdict}">${value}</span>`,
+        "mdi:water-thermometer",
+        roles.minFlow.entity_id
+      );
       if (hint) flow.title = hint;
-      flow.innerHTML =
-        `<span class="k">Mind. Vorlauf</span>` +
-        `<span class="${verdict}">${num(roles.minFlow.state)} °C${
-          verdict === "low" ? " ⚠" : ""
-        }</span>`;
       container.appendChild(flow);
     }
   }
 
-  _numberControl(stateObj, kind) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "setpoint";
+  // Setting a number runs in three steps, deliberately separated:
+  //
+  //   1. the shown value changes at once, so the control follows the finger
+  //   2. the service call goes out 500 ms later, so a correction while still
+  //      adjusting replaces the previous call instead of queueing behind it
+  //   3. 2 s after that the local value is dropped
+  //
+  // Step 3 is the round-trip check: if the write landed, the state already
+  // equals the local value and dropping it changes nothing on screen. If it did
+  // not, the control snaps back to what the server actually has, rather than
+  // showing a value that was never set.
+  _setNumber(stateObj, value) {
+    const { min, max, step } = stateObj.attributes;
+    const snapped = Math.min(max, Math.max(min, Math.round(value / step) * step));
+    const entityId = stateObj.entity_id;
 
-    const input = document.createElement("input");
-    input.type = kind;
-    input.min = stateObj.attributes.min;
-    input.max = stateObj.attributes.max;
-    input.step = stateObj.attributes.step;
-    input.value = stateObj.state;
+    this._pending = this._pending ?? {};
+    const entry = (this._pending[entityId] = this._pending[entityId] ?? {});
+    clearTimeout(entry.writeTimer);
+    clearTimeout(entry.verifyTimer);
+    entry.value = snapped;
+
+    entry.writeTimer = setTimeout(() => {
+      this._callService("number", "set_value", {
+        entity_id: entityId,
+        value: snapped,
+      });
+      entry.verifyTimer = setTimeout(() => {
+        delete this._pending[entityId];
+        this._refreshControls();
+      }, 2000);
+    }, 500);
+
+    this._refreshControls();
+  }
+
+  // Through the same guard as the regular update, so the cached signature stays
+  // in sync with what is on screen -- otherwise the next real change from Home
+  // Assistant would be skipped as "unchanged".
+  _refreshControls() {
+    if (!this._hass || !this._rendered) return;
+    const roles = this._resolveEntities();
+    if (!roles.mode || !roles.automation) return;
+    this._rebuildIf("controls", this._controlSignature(roles), () =>
+      this._updateControls(roles)
+    );
+  }
+
+  _effectiveValue(stateObj) {
+    const entry = this._pending?.[stateObj.entity_id];
+    return entry ? entry.value : Number.parseFloat(stateObj.state);
+  }
+
+  disconnectedCallback() {
+    for (const entry of Object.values(this._pending ?? {})) {
+      clearTimeout(entry.writeTimer);
+      clearTimeout(entry.verifyTimer);
+    }
+    this._pending = {};
+  }
+
+  _comfortSlider(stateObj) {
+    const { min, max, step } = stateObj.attributes;
+    const value = this._effectiveValue(stateObj);
+    // The left cap holds icon and value and is always filled, so the readout
+    // never sits on empty track. Only the part right of it is draggable.
+    const CAP = 92;
+
+    const track = document.createElement("div");
+    track.className = "slider";
+    track.title = `${num(min, 1, localeOf(this._hass))}–${num(
+      max,
+      1,
+      localeOf(this._hass)
+    )} °C`;
+
+    const fill = document.createElement("div");
+    fill.className = "slider-fill";
+
+    const label = document.createElement("div");
+    label.className = "slider-label";
+    label.innerHTML = `<ha-icon icon="${MODE_ICONS.comfort}"></ha-icon><span></span>`;
+    const readout = label.querySelector("span");
+
+    // Shows what the finger is on, not what the server has -- snapped to step,
+    // because a bar that lands between two settable values lies about where it
+    // will end up.
+    const show = (v) => {
+      const snapped = Math.min(max, Math.max(min, Math.round(v / step) * step));
+      const fraction = max > min ? (snapped - min) / (max - min) : 0;
+      fill.style.width = `calc(${CAP}px + (100% - ${CAP}px) * ${fraction})`;
+      readout.textContent = `${num(snapped, 1, localeOf(this._hass))} °C`;
+    };
+    show(value);
+
+    const valueAt = (clientX) => {
+      const rect = track.getBoundingClientRect();
+      const span = rect.width - CAP;
+      if (span <= 0) return value;
+      const fraction = (clientX - rect.left - CAP) / span;
+      return min + Math.min(1, Math.max(0, fraction)) * (max - min);
+    };
+
+    track.addEventListener("click", (ev) => ev.stopPropagation());
+    track.addEventListener("pointerdown", (ev) => {
+      ev.stopPropagation();
+      // Card-wide, not local: a rebuild triggered by any other entity would
+      // replace this element and the gesture would end mid-drag.
+      this._dragging = true;
+      track.setPointerCapture(ev.pointerId);
+      show(valueAt(ev.clientX));
+    });
+    track.addEventListener("pointermove", (ev) => {
+      if (!this._dragging) return;
+      show(valueAt(ev.clientX));
+    });
+    const finish = (ev) => {
+      if (!this._dragging) return;
+      this._dragging = false;
+      this._setNumber(stateObj, valueAt(ev.clientX));
+    };
+    track.addEventListener("pointerup", finish);
+    track.addEventListener("pointercancel", finish);
+
+    track.append(fill, label);
+    return track;
+  }
+
+  _ecoStepper(stateObj) {
+    const { min, max, step } = stateObj.attributes;
+    const value = this._effectiveValue(stateObj);
+
+    const box = document.createElement("div");
+    box.className = "stepper";
+    box.addEventListener("click", (ev) => ev.stopPropagation());
+
+    const button = (glyph, delta, disabled) => {
+      const el = document.createElement("button");
+      el.textContent = glyph;
+      el.disabled = disabled;
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._setNumber(stateObj, value + delta);
+      });
+      return el;
+    };
 
     const readout = document.createElement("span");
-    readout.textContent = `${num(stateObj.state)} °C`;
+    readout.innerHTML = `<ha-icon icon="${MODE_ICONS.eco}"></ha-icon>${num(
+      value,
+      1,
+      localeOf(this._hass)
+    )} °C`;
 
-    input.addEventListener("click", (ev) => ev.stopPropagation());
-    input.addEventListener("change", (ev) => {
-      this._callService("number", "set_value", {
-        entity_id: stateObj.entity_id,
-        value: Number.parseFloat(ev.target.value),
-      });
-    });
-
-    const icon = document.createElement("ha-icon");
-    icon.setAttribute(
-      "icon",
-      stateObj.attributes.device_class === "temperature" &&
-        stateObj.attributes.min < 0
-        ? MODE_ICONS.eco
-        : MODE_ICONS.comfort
+    box.append(
+      button("−", -step, value - step < min),
+      readout,
+      button("+", step, value + step > max)
     );
-
-    wrapper.append(icon, input, readout);
-    return wrapper;
+    return box;
   }
 }
 

@@ -50,6 +50,7 @@ from .const import (
     DEFAULT_FLOW_THRESHOLD_C,
     HEAT_SOURCE_ACTIVE_STATE,
     DesignTemperatureSystem,
+    FlowSupplyStatus,
     HeatEmitterType,
     HeatMode,
     LEARNING_CYCLE_INTERVAL_MINUTES,
@@ -484,31 +485,20 @@ class HeatingRoomCoordinator:
         return result.recommended_flow_temperature_c if result else None
 
     @property
-    def is_below_operating_threshold(self) -> bool:
-        """Whether the requirement is real but can never bind.
+    def flow_supply_status(self) -> FlowSupplyStatus:
 
-        The heat source does not run below the flow threshold, so a room asking
-        for less than that is always over-supplied whenever heating happens at
-        all -- it can never be the room that sets the system's flow
-        temperature. Reported separately instead of zeroing the value, because
-        0.0 already means "no requirement at all" and the run-up towards the
-        threshold is the interesting part.
-        """
         required = self.normal_min_flow_temperature_c
         if required is None or required <= 0:
-            return False
-        return required < self._flow_threshold_c
-
-    @property
-    def is_sufficiently_supplied(self) -> bool | None:
+            return FlowSupplyStatus.NO_REQUIREMENT
+        
+        if required < self._flow_threshold_c:
+            return FlowSupplyStatus.BELOW_THRESHOLD
+            
         if not self.trv_active:
-            return None
-        required = self.normal_min_flow_temperature_c
-        if required is None:
-            return None
-        if required <= 0:
-            return True
+            return FlowSupplyStatus.SOURCE_INACTIVE
+
         current = self.current_flow_temperature_c
-        if current is None:
-            return False
-        return current >= required
+        if current is not None and current >= required:
+            return FlowSupplyStatus.SUFFICIENT
+        
+        return FlowSupplyStatus.UNDERSUPPLIED

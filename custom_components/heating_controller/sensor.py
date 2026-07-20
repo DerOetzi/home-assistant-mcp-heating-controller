@@ -53,10 +53,7 @@ class MinFlowTemperatureSensor(_DiagnosticSensor):
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
             "current_flow_temperature_c": self._coordinator.current_flow_temperature_c,
-            "sufficiently_supplied": self._coordinator.is_sufficiently_supplied,
-            "below_operating_threshold": (
-                self._coordinator.is_below_operating_threshold
-            ),
+            "supply_status": self._coordinator.flow_supply_status.value,
             "calculation_heat_mode": (
                 self._coordinator.normal_heat_mode.value
                 if self._coordinator.normal_heat_mode is not None

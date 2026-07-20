@@ -164,7 +164,8 @@ def test_managed_row_defaults(ctx) -> None:
     by_key = {r["key"]: r for r in rows}
     assert by_key["room_sensor"]["value"] == "21.4 °C"
     assert by_key["trv:climate.gross"]["name"] == "Heizung groß"
-    assert by_key["trv:climate.gross"]["value"] == "21.1 °C → 5.0 °C"
+    # Trailing zeros are dropped: the digits argument is a maximum, not a width.
+    assert by_key["trv:climate.gross"]["value"] == "21.1 °C → 5 °C"
     assert by_key["window:binary_sensor.fenster_a"]["value"] == "Geschlossen"
 
 
@@ -178,3 +179,16 @@ def test_normalize_detail_keeps_key_and_entity_entries(ctx) -> None:
         {"key": "room_sensor"},
         {"entity": "sensor.y", "name": "Y"},
     ]
+
+
+def test_number_formatting_drops_trailing_zeros(ctx) -> None:
+    """`digits` is a maximum, not a fixed width -- "21 °C", not "21.0 °C"."""
+    assert ctx.eval('num(21.0)') == "21"
+    assert ctx.eval('num(21.45)') == "21.5"
+    assert ctx.eval('num("-1.0")') == "-1"
+    assert ctx.eval('num(640, 0)') == "640"
+
+
+def test_number_formatting_survives_bad_input(ctx) -> None:
+    assert ctx.eval('num("unavailable")') == "–"
+    assert ctx.eval('num(undefined)') == "–"
