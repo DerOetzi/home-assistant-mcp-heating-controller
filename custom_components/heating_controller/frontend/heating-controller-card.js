@@ -478,6 +478,9 @@ class HeatingControllerCard extends HTMLElement {
         .flow { display: flex; justify-content: space-between; font-size: 0.9rem; }
         .flow .ok { color: var(--success-color, #43a047); }
         .flow .low { color: var(--warning-color, #ffa600); }
+        /* Readable but visibly inactive: the number still matters for the
+           trend, it just cannot drive the system right now. */
+        .flow .idle { color: var(--secondary-text-color); opacity: 0.6; }
       </style>`;
 
     this.shadowRoot
@@ -736,14 +739,32 @@ class HeatingControllerCard extends HTMLElement {
 
     // Minimum flow temperature
     if (roles.minFlow) {
-      const supplied = roles.minFlow.attributes.sufficiently_supplied;
+      // Three cases, deliberately distinguishable at a glance:
+      //   below the operating threshold -> real but never binding: dimmed
+      //   sufficiently_supplied null    -> heat source off, not answerable
+      //   otherwise                     -> the verdict
+      const attrs = roles.minFlow.attributes;
+      const supplied = attrs.sufficiently_supplied;
+      const verdict = attrs.below_operating_threshold
+        ? "idle"
+        : supplied == null
+        ? ""
+        : supplied
+        ? "ok"
+        : "low";
+      const hint = {
+        idle: "Unter der Betriebsschwelle der Wärmepumpe – nie bestimmend",
+        ok: "Vorlauf reicht für diesen Raum",
+        low: "Vorlauf zu niedrig für diesen Raum",
+      }[verdict];
       const flow = document.createElement("div");
       flow.className = "flow";
+      if (hint) flow.title = hint;
       flow.innerHTML =
         `<span class="k">Mind. Vorlauf</span>` +
-        `<span class="${supplied ? "ok" : "low"}">${num(
-          roles.minFlow.state
-        )} °C${supplied ? "" : " ⚠"}</span>`;
+        `<span class="${verdict}">${num(roles.minFlow.state)} °C${
+          verdict === "low" ? " ⚠" : ""
+        }</span>`;
       container.appendChild(flow);
     }
   }

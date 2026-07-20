@@ -19,25 +19,25 @@ DEFAULT_EMITTER_EXPONENT = 1.3
 
 PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER: dict[int, dict[PanelRadiatorType, float]] = {
     300: {
-        PanelRadiatorType.TYPE_10: 450,
-        PanelRadiatorType.TYPE_11: 600,
-        PanelRadiatorType.TYPE_21: 900,
-        PanelRadiatorType.TYPE_22: 1200,
-        PanelRadiatorType.TYPE_33: 1800,
+        PanelRadiatorType.TYPE_10: 376,
+        PanelRadiatorType.TYPE_11: 528,
+        PanelRadiatorType.TYPE_21: 732,
+        PanelRadiatorType.TYPE_22: 1013,
+        PanelRadiatorType.TYPE_33: 1446,
     },
     600: {
-        PanelRadiatorType.TYPE_10: 800,
-        PanelRadiatorType.TYPE_11: 1100,
-        PanelRadiatorType.TYPE_21: 1600,
-        PanelRadiatorType.TYPE_22: 2000,
-        PanelRadiatorType.TYPE_33: 3000,
+        PanelRadiatorType.TYPE_10: 668,
+        PanelRadiatorType.TYPE_11: 968,
+        PanelRadiatorType.TYPE_21: 1302,
+        PanelRadiatorType.TYPE_22: 1688,
+        PanelRadiatorType.TYPE_33: 2410,
     },
     900: {
-        PanelRadiatorType.TYPE_10: 1200,
-        PanelRadiatorType.TYPE_11: 1600,
-        PanelRadiatorType.TYPE_21: 2400,
-        PanelRadiatorType.TYPE_22: 3100,
-        PanelRadiatorType.TYPE_33: 4500,
+        PanelRadiatorType.TYPE_10: 1002,
+        PanelRadiatorType.TYPE_11: 1408,
+        PanelRadiatorType.TYPE_21: 1954,
+        PanelRadiatorType.TYPE_22: 2617,
+        PanelRadiatorType.TYPE_33: 3614,
     },
 }
 
@@ -81,6 +81,7 @@ class HeatEmitterModel:
         self._design_temperatures = DESIGN_SYSTEM_TEMPERATURES[
             thermal_config.design_temperature_system
         ]
+        self._room_heat_load_w = thermal_config.room_heat_load_w
         prepared = [self._create_prepared_emitter(trv) for trv in trvs]
         self._emitters = self._calculate_distribution_weights(prepared)
 
@@ -182,16 +183,20 @@ class HeatEmitterModel:
         ]
 
     def calculate_available_heating_power_w(
-        self, room_temperature_c: float, flow_temperature_c: float | None = None
+        self,
+        room_temperature_c: float,
+        flow_temperature_c: float | None = None,
+        spread_c: float | None = None,
     ) -> float:
         effective_flow_temperature_c = (
             flow_temperature_c
             if flow_temperature_c is not None
             else self._design_temperatures.flow_temperature_c
         )
-        return_temperature_c = (
-            effective_flow_temperature_c - self._design_temperatures.spread_c
+        effective_spread_c = (
+            spread_c if spread_c is not None else self._design_temperatures.spread_c
         )
+        return_temperature_c = effective_flow_temperature_c - effective_spread_c
         current_mean_temperature_c = (
             effective_flow_temperature_c + return_temperature_c
         ) / 2
@@ -237,16 +242,29 @@ class HeatEmitterModel:
             trv.max_target_temperature_c,
         )
 
+    def _part_load_spread_c(self, heating_power_w: float) -> float:
+        if self._room_heat_load_w <= 0:
+            return self._design_temperatures.spread_c
+        return (
+            self._design_temperatures.spread_c
+            * heating_power_w
+            / self._room_heat_load_w
+        )
+
     def calculate_recommended_flow_temperature_c(
         self, required_heating_power_w: float, target_room_temperature_c: float
     ) -> float | None:
         if required_heating_power_w <= 0:
             return 0.0
 
+        spread_c = self._part_load_spread_c(required_heating_power_w)
+
         low, high = FLOW_SEARCH_MIN_C, FLOW_SEARCH_MAX_C
 
         if (
-            self.calculate_available_heating_power_w(target_room_temperature_c, high)
+            self.calculate_available_heating_power_w(
+                target_room_temperature_c, high, spread_c
+            )
             < required_heating_power_w
         ):
             return high
@@ -255,7 +273,7 @@ class HeatEmitterModel:
         while high - low > FLOW_SEARCH_PRECISION_C:
             mid = (low + high) / 2
             available_power_w = self.calculate_available_heating_power_w(
-                target_room_temperature_c, mid
+                target_room_temperature_c, mid, spread_c
             )
             if available_power_w >= required_heating_power_w:
                 optimal_flow = mid

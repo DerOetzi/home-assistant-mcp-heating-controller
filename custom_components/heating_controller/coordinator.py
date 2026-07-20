@@ -113,7 +113,7 @@ class HeatingRoomCoordinator:
             self.data.get(CONF_ROOM_COMFORT_CONDITION_ENTITIES, [])
         )
         self._comfort_condition_entities: list[str] = [
-            *self.data[CONF_COMFORT_CONDITION_ENTITIES],
+            *self.data.get(CONF_COMFORT_CONDITION_ENTITIES, []),
             *self.room_comfort_condition_entities,
         ]
 
@@ -164,6 +164,8 @@ class HeatingRoomCoordinator:
         self.trv_active = True
         self.last_result: RoomMpcResult | None = None
         self.normal_result: RoomMpcResult | None = None
+        self.normal_heat_mode: HeatMode | None = None
+        self.normal_target_temperature_c: float | None = None
 
         self._unsub: list[Callable[[], None]] = []
         self._listeners: list[Callable[[], None]] = []
@@ -394,9 +396,14 @@ class HeatingRoomCoordinator:
         else:
             self.mpc.disable_learning()
 
+        # Recorded, not re-derived on read: the minimum flow temperature is only
+        # interpretable together with the mode and target it was computed from,
+        # and both can move between a compute and someone reading the sensor.
+        self.normal_heat_mode = self.state.current_heat_mode
         normal_target = self.state.effective_target_temperature(
-            self.state.determine_base_target_temperature(self.state.current_heat_mode)
+            self.state.determine_base_target_temperature(self.normal_heat_mode)
         )
+        self.normal_target_temperature_c = normal_target
         normal_compute = self.mpc.compute(normal_target, apply_side_effects=False)
         self.normal_result = normal_compute.result if normal_compute.valid else None
 
@@ -477,7 +484,25 @@ class HeatingRoomCoordinator:
         return result.recommended_flow_temperature_c if result else None
 
     @property
+    def is_below_operating_threshold(self) -> bool:
+        """Whether the requirement is real but can never bind.
+
+        The heat source does not run below the flow threshold, so a room asking
+        for less than that is always over-supplied whenever heating happens at
+        all -- it can never be the room that sets the system's flow
+        temperature. Reported separately instead of zeroing the value, because
+        0.0 already means "no requirement at all" and the run-up towards the
+        threshold is the interesting part.
+        """
+        required = self.normal_min_flow_temperature_c
+        if required is None or required <= 0:
+            return False
+        return required < self._flow_threshold_c
+
+    @property
     def is_sufficiently_supplied(self) -> bool | None:
+        if not self.trv_active:
+            return None
         required = self.normal_min_flow_temperature_c
         if required is None:
             return None

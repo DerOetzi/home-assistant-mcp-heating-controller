@@ -159,7 +159,7 @@ def _entities_schema(defaults: dict[str, Any]) -> vol.Schema:
                     multiple=True,
                 )
             ),
-            vol.Required(
+            vol.Optional(
                 CONF_COMFORT_CONDITION_ENTITIES,
                 default=defaults.get(CONF_COMFORT_CONDITION_ENTITIES, []),
             ): selector.EntitySelector(

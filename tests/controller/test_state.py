@@ -28,6 +28,16 @@ def test_is_comfort_false_when_any_condition_false():
     assert controller.is_comfort() is False
 
 
+def test_room_without_comfort_conditions_stays_in_eco():
+    """A room configured with no comfort condition must never rise to comfort
+    on its own -- only a manual override may lift it. Guards against a
+    simplification to all(()), which is True."""
+    controller = make_controller()
+
+    assert controller.is_comfort() is False
+    assert controller.desired_automatic_heat_mode(blocked=False) == HeatMode.ECO
+
+
 def test_desired_automatic_heat_mode_follows_comfort_condition():
     controller = make_controller()
     controller.set_comfort_condition("global_release", True)

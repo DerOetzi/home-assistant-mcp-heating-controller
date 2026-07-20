@@ -54,6 +54,17 @@ class MinFlowTemperatureSensor(_DiagnosticSensor):
         return {
             "current_flow_temperature_c": self._coordinator.current_flow_temperature_c,
             "sufficiently_supplied": self._coordinator.is_sufficiently_supplied,
+            "below_operating_threshold": (
+                self._coordinator.is_below_operating_threshold
+            ),
+            "calculation_heat_mode": (
+                self._coordinator.normal_heat_mode.value
+                if self._coordinator.normal_heat_mode is not None
+                else None
+            ),
+            "calculation_target_temperature_c": (
+                self._coordinator.normal_target_temperature_c
+            ),
         }
 
 

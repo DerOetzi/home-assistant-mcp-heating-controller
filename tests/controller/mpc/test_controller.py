@@ -134,12 +134,12 @@ def test_recommended_flow_zero_when_ambient_alone_holds_target():
     assert result.result.recommended_flow_temperature_c == 0
 
 
-def test_recommended_flow_zero_while_room_coasts_above_target_and_outdoor():
-    # Regression (live): room well above target due to solar gain, outdoor
-    # mild but still below target (so heat_loss(target, outdoor) alone would
-    # be > 0). The room is not yet losing the buffer below target -- it is
-    # coasting towards outdoor, not towards a heating need -- so the
-    # recommended flow must read 0, not the steady-state hold flow.
+def test_recommended_flow_reported_while_room_coasts_above_target_and_outdoor():
+    # Regression (live, summer): room well above target from solar gain while
+    # outdoor sits below target. The recommended flow states what the heat
+    # source must be able to supply to hold the target -- that requirement does
+    # not disappear just because the room is momentarily warm, so it must not
+    # read 0 here.
     controller = make_controller()
     controller.set_room_sensor_temperature(27.5)
     controller.set_outdoor_temperature(21.1)
@@ -148,22 +148,31 @@ def test_recommended_flow_zero_while_room_coasts_above_target_and_outdoor():
     result = controller.compute(target_temperature_c=23.0)
 
     assert result.valid
-    assert result.result.recommended_flow_temperature_c == 0
-
-
-def test_recommended_flow_resumes_once_room_drops_to_target_while_above_outdoor():
-    # Same target/outdoor as above, but the room has now cooled down exactly
-    # to target while still above outdoor -- the buffer is used up, so the
-    # hold flow must be reported again (not the coasting zero).
-    controller = make_controller()
-    controller.set_room_sensor_temperature(23.0)
-    controller.set_outdoor_temperature(21.1)
-    controller.set_flow_temperature(26.0)
-
-    result = controller.compute(target_temperature_c=23.0)
-
-    assert result.valid
+    assert result.result.demand_pct == 0
     assert result.result.recommended_flow_temperature_c > 0
+
+
+def test_recommended_flow_unchanged_when_room_drops_to_target():
+    # Same target/outdoor, room now exactly at target: the steady-state
+    # requirement is a function of (target, outdoor) only, so cooling down must
+    # not change it.
+    coasting = make_controller()
+    coasting.set_room_sensor_temperature(27.5)
+    coasting.set_outdoor_temperature(21.1)
+    coasting.set_flow_temperature(26.0)
+    coasting_result = coasting.compute(target_temperature_c=23.0)
+
+    settled = make_controller()
+    settled.set_room_sensor_temperature(23.0)
+    settled.set_outdoor_temperature(21.1)
+    settled.set_flow_temperature(26.0)
+    settled_result = settled.compute(target_temperature_c=23.0)
+
+    assert coasting_result.valid and settled_result.valid
+    assert (
+        coasting_result.result.recommended_flow_temperature_c
+        == settled_result.result.recommended_flow_temperature_c
+    )
 
 
 def test_recommended_flow_combines_hold_and_requested_branches_independently():
@@ -186,11 +195,17 @@ def test_recommended_flow_combines_hold_and_requested_branches_independently():
 
     assert result.valid
     assert result.result.requested_heating_power_w > 0
-    # The hold-branch flow (~34.5C, hold_power ~150W at target=22) must win
-    # even though requested_heating_power_w (~247W) is larger in magnitude,
-    # because it is evaluated at the much colder actual room (5C) where far
-    # less flow suffices for that power.
-    assert result.result.recommended_flow_temperature_c >= 34.0
+    # The hold branch must win even though requested_heating_power_w is larger
+    # in magnitude, because it is evaluated at the much colder actual room (5C)
+    # where far less flow suffices for that power. Compared against the
+    # requested branch alone rather than a fixed temperature, so the assertion
+    # survives changes to the emitter reference data.
+    requested_branch_flow_c = (
+        controller._emitter_model.calculate_recommended_flow_temperature_c(
+            result.result.requested_heating_power_w, result.result.input.room_temp_c
+        )
+    )
+    assert result.result.recommended_flow_temperature_c > requested_branch_flow_c
 
 
 def test_enable_learning_and_run_learning_cycle_does_not_raise():

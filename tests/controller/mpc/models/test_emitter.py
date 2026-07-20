@@ -75,3 +75,30 @@ def test_recommended_flow_temperature_increases_with_required_power():
 def test_recommended_flow_temperature_zero_when_no_power_required():
     model = make_model([TrvConfig(name="trv1")])
     assert model.calculate_recommended_flow_temperature_c(0, 20) == 0
+
+
+def test_recommended_flow_uses_part_load_spread():
+    """At part load the spread collapses, so less flow is needed than the
+    design spread implies. Pinning this against an explicit design-spread
+    calculation keeps the two directions from silently converging again."""
+    model = HeatEmitterModel(
+        RoomThermalConfig(room_heat_load_w=1200), [TrvConfig(name="trv1")]
+    )
+    required_w = 300  # a quarter of the design load -> spread 2.5 K, not 10 K
+
+    flow_c = model.calculate_recommended_flow_temperature_c(required_w, 20)
+
+    assert model.calculate_available_heating_power_w(20, flow_c, 2.5) >= required_w
+    # With the design spread the same flow would look insufficient, which is
+    # what used to push the recommendation several kelvin too high.
+    assert model.calculate_available_heating_power_w(20, flow_c) < required_w
+
+
+def test_forward_direction_keeps_design_spread():
+    """The valves-throttling direction must not inherit the part-load spread."""
+    model = HeatEmitterModel(
+        RoomThermalConfig(room_heat_load_w=1200), [TrvConfig(name="trv1")]
+    )
+    assert model.calculate_available_heating_power_w(
+        20, 45
+    ) == model.calculate_available_heating_power_w(20, 45, 10.0)

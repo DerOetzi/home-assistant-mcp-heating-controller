@@ -148,22 +148,15 @@ class RoomMpcController:
     def _calculate_recommended_flow_temperature_c(
         self, mpc_input: RoomMpcInput, requested_heating_power_w: float
     ) -> float:
-        is_coasting = (
-            mpc_input.room_temp_c > mpc_input.target_temp_c
-            and mpc_input.room_temp_c > mpc_input.outdoor_temp_c
+        hold_power_w = max(
+            0.0,
+            self._loss_model.calculate_heat_loss_w(
+                mpc_input.target_temp_c, mpc_input.outdoor_temp_c
+            ),
         )
-        hold_flow_c = 0.0
-        if not is_coasting:
-            hold_power_w = max(
-                0.0,
-                self._loss_model.calculate_heat_loss_w(
-                    mpc_input.target_temp_c, mpc_input.outdoor_temp_c
-                ),
-            )
-            
-            hold_flow_c = self._emitter_model.calculate_recommended_flow_temperature_c(
-                hold_power_w, mpc_input.target_temp_c
-            )
+        hold_flow_c = self._emitter_model.calculate_recommended_flow_temperature_c(
+            hold_power_w, mpc_input.target_temp_c
+        )
 
         requested_flow_c = self._emitter_model.calculate_recommended_flow_temperature_c(
             requested_heating_power_w, mpc_input.room_temp_c
