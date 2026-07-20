@@ -1,6 +1,12 @@
 // Visual editor for the card.
 
-import { DOMAIN, HEADER_KEY, DETAIL_KEY, ROOM_SENSOR_KEY } from "./const.js";
+import {
+  CONDITION_KEY,
+  DOMAIN,
+  HEADER_KEY,
+  DETAIL_KEY,
+  ROOM_SENSOR_KEY,
+} from "./const.js";
 import { resolveRoles, managedDetailRows } from "./entities.js";
 import {
   migrateLegacyConfig,
@@ -29,6 +35,15 @@ const ITEM_SCHEMA = [
 const ITEM_SCHEMA_NO_ENTITY = [
   { name: "name", selector: { text: {} } },
   { name: "icon", selector: { icon: {} } },
+];
+
+// Comfort conditions are always device-derived (the entity itself is never
+// editable here) — only how the An/Aus toggle presents each state is.
+const CONDITION_SCHEMA = [
+  { name: "label_on", selector: { text: {} } },
+  { name: "icon_on", selector: { icon: {} } },
+  { name: "label_off", selector: { text: {} } },
+  { name: "icon_off", selector: { icon: {} } },
 ];
 
 export class HeatingControllerCardEditor extends HTMLElement {
@@ -79,8 +94,10 @@ export class HeatingControllerCardEditor extends HTMLElement {
     } else {
       delete config[HEADER_KEY];
     }
-    // Detail is serialized by _setDetail; here only drop it when empty.
+    // Detail and comfort conditions are serialized by _setDetail /
+    // _setConditions; here only drop them when empty.
     if (!config[DETAIL_KEY]?.length) delete config[DETAIL_KEY];
+    if (!config[CONDITION_KEY]?.length) delete config[CONDITION_KEY];
 
     this._config = config;
     this.dispatchEvent(
@@ -185,6 +202,64 @@ export class HeatingControllerCardEditor extends HTMLElement {
     this._emit(config);
   }
 
+  // The room-specific comfort conditions the device currently reports,
+  // reconciled with the config the same way detail rows are: config order and
+  // hidden flags win, entries the device no longer reports drop out, newly
+  // reported ones append at the end. There is no adder here -- unlike a
+  // header sensor, a condition isn't something you add from the card, it
+  // comes from the room's own configuration.
+  _conditionEditorItems() {
+    const roles = resolveRoles(this._hass, this._config.device);
+    const actualIds = roles.automation?.attributes?.comfort_condition_entities ?? [];
+    const used = new Set();
+    const items = [];
+
+    for (const entry of normalizeItems(this._config[CONDITION_KEY])) {
+      if (!actualIds.includes(entry.entity)) continue;
+      used.add(entry.entity);
+      items.push({ ...entry, hidden: Boolean(entry.hidden) });
+    }
+    for (const id of actualIds) {
+      if (used.has(id)) continue;
+      items.push({ entity: id, hidden: false });
+    }
+    return items;
+  }
+
+  _setConditions(items) {
+    const roles = resolveRoles(this._hass, this._config.device);
+    const defaultIds = roles.automation?.attributes?.comfort_condition_entities ?? [];
+    // As long as nothing is touched, omit the config entirely -- same
+    // pristine-detection as _setDetail.
+    const pristine =
+      items.length === defaultIds.length &&
+      items.every(
+        (item, index) =>
+          item.entity === defaultIds[index] &&
+          !item.icon_on &&
+          !item.icon_off &&
+          !item.label_on &&
+          !item.label_off &&
+          !item.hidden
+      );
+
+    const config = { ...this._config };
+    if (pristine) {
+      delete config[CONDITION_KEY];
+    } else {
+      config[CONDITION_KEY] = items.map((item) => {
+        const entry = { entity: item.entity };
+        if (item.icon_on) entry.icon_on = item.icon_on;
+        if (item.icon_off) entry.icon_off = item.icon_off;
+        if (item.label_on) entry.label_on = item.label_on;
+        if (item.label_off) entry.label_off = item.label_off;
+        if (item.hidden) entry.hidden = true;
+        return entry;
+      });
+    }
+    this._emit(config);
+  }
+
   // ---------- rendering ----------
 
   _render() {
@@ -241,6 +316,14 @@ export class HeatingControllerCardEditor extends HTMLElement {
         const next = this._items(HEADER_KEY);
         next[index] = value;
         this._setList(HEADER_KEY, next);
+      } else if (list === "condition") {
+        const next = this._conditionEditorItems();
+        const item = next[index];
+        item.label_on = ev.detail.value.label_on;
+        item.icon_on = ev.detail.value.icon_on;
+        item.label_off = ev.detail.value.label_off;
+        item.icon_off = ev.detail.value.icon_off;
+        this._setConditions(next);
       } else {
         const next = this._detailEditorItems();
         const item = next[index];
@@ -273,7 +356,9 @@ export class HeatingControllerCardEditor extends HTMLElement {
       this._config.device,
       this._config[HEADER_KEY] ?? null,
       this._config[DETAIL_KEY] ?? null,
+      this._config[CONDITION_KEY] ?? null,
       managedDetailRows(this._hass, roles).map((row) => row.key),
+      roles.automation?.attributes?.comfort_condition_entities ?? null,
     ]);
     const lists = this.shadowRoot.getElementById("lists");
     if (this._listsSignature === signature && lists.childElementCount) return;
@@ -288,6 +373,10 @@ export class HeatingControllerCardEditor extends HTMLElement {
       })
     );
     lists.appendChild(this._buildDetailSection());
+    // Only shown when the room actually has one -- most rooms don't, and an
+    // empty list with nothing to sort or hide would just be noise.
+    const conditionSection = this._buildConditionSection();
+    if (conditionSection) lists.appendChild(conditionSection);
   }
 
   _buildDetailSection() {
@@ -374,6 +463,72 @@ export class HeatingControllerCardEditor extends HTMLElement {
     row.appendChild(
       this._iconButton("mdi:pencil", () => {
         this._edit = { list: "detail", index };
+        this._render();
+      })
+    );
+    return row;
+  }
+
+  _buildConditionSection() {
+    const items = this._conditionEditorItems();
+    if (!items.length) return null;
+
+    const section = document.createElement("div");
+    section.className = "list-section";
+    section.innerHTML =
+      `<div class="heading">${t(this._hass, "editor_conditions_heading")}</div>` +
+      `<div class="hint">${t(this._hass, "editor_conditions_hint")}</div>`;
+
+    const container = document.createElement("div");
+    items.forEach((item, index) =>
+      container.appendChild(this._buildConditionRow(item, index))
+    );
+
+    const sortable = document.createElement("ha-sortable");
+    sortable.setAttribute("handle-selector", ".handle");
+    sortable.addEventListener("item-moved", (ev) => {
+      ev.stopPropagation();
+      const { oldIndex, newIndex } = ev.detail;
+      const next = this._conditionEditorItems();
+      next.splice(newIndex, 0, ...next.splice(oldIndex, 1));
+      this._setConditions(next);
+    });
+    sortable.appendChild(container);
+    section.appendChild(sortable);
+    return section;
+  }
+
+  // No delete here, only hide: the entity is defined by the room's own
+  // configuration, not chosen from the card, so there is nothing to remove --
+  // the same reasoning as a managed detail row.
+  _buildConditionRow(item, index) {
+    const stateObj = this._hass.states[item.entity];
+    const row = document.createElement("div");
+    row.className = "row";
+    if (item.hidden) row.style.opacity = "0.5";
+
+    const handle = document.createElement("ha-icon");
+    handle.className = "handle";
+    handle.setAttribute("icon", "mdi:drag");
+    row.appendChild(handle);
+
+    const info = document.createElement("div");
+    info.className = "info";
+    info.innerHTML =
+      `<div class="primary">${stateObj?.attributes?.friendly_name ?? item.entity}</div>` +
+      `<div class="secondary">${item.entity}</div>`;
+    row.appendChild(info);
+
+    row.appendChild(
+      this._iconButton(item.hidden ? "mdi:eye-off" : "mdi:eye", () => {
+        const next = this._conditionEditorItems();
+        next[index].hidden = !next[index].hidden;
+        this._setConditions(next);
+      })
+    );
+    row.appendChild(
+      this._iconButton("mdi:pencil", () => {
+        this._edit = { list: "condition", index };
         this._render();
       })
     );
@@ -469,7 +624,11 @@ export class HeatingControllerCardEditor extends HTMLElement {
   _renderDetailView() {
     const { list, index } = this._edit;
     const items =
-      list === "header" ? this._items(HEADER_KEY) : this._detailEditorItems();
+      list === "header"
+        ? this._items(HEADER_KEY)
+        : list === "condition"
+        ? this._conditionEditorItems()
+        : this._detailEditorItems();
     const item = items[index];
     if (!item) {
       this._edit = null;
@@ -479,18 +638,33 @@ export class HeatingControllerCardEditor extends HTMLElement {
 
     const heading = t(
       this._hass,
-      list === "header" ? "editor_header_heading" : "section_details"
+      list === "header"
+        ? "editor_header_heading"
+        : list === "condition"
+        ? "editor_conditions_heading"
+        : "section_details"
     );
     this.shadowRoot.getElementById("detailLabel").textContent =
       `${index + 1} / ${items.length} \u00b7 ${heading}`;
 
-    // Managed detail rows have a fixed entity: it is shown read-only above the
-    // form so you can see what you are editing, but only name and icon are
-    // editable in the form itself.
+    // Managed detail rows and comfort conditions both have a fixed entity: it
+    // is shown read-only above the form so you can see what you are editing,
+    // but only the fields the form actually exposes are editable.
     const managed = list === "detail" && item.managed;
-    this._renderReadonlyEntity(managed ? item : null);
+    this._renderReadonlyEntity(managed || list === "condition" ? item : null);
 
     const form = this.shadowRoot.getElementById("itemForm");
+    if (list === "condition") {
+      form.schema = CONDITION_SCHEMA;
+      form.hass = this._hass;
+      form.data = {
+        label_on: item.label_on,
+        icon_on: item.icon_on,
+        label_off: item.label_off,
+        icon_off: item.icon_off,
+      };
+      return;
+    }
     form.schema = managed ? ITEM_SCHEMA_NO_ENTITY : ITEM_SCHEMA;
     form.hass = this._hass;
     form.data = managed

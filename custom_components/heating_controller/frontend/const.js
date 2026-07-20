@@ -50,6 +50,7 @@ export const DEVICE_CLASS_ICONS = {
 
 export const HEADER_KEY = "header_entities";
 export const DETAIL_KEY = "detail_entities";
+export const CONDITION_KEY = "comfort_conditions";
 
 // Identifies the auto-populated detail rows. TRVs and windows append their
 // entity id; the room sensor is a singleton.

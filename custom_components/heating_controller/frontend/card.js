@@ -7,6 +7,7 @@
  */
 
 import {
+  CONDITION_KEY,
   DETAIL_KEY,
   DEVICE_CLASS_ICONS,
   DEVICE_CLASS_UNITS,
@@ -21,7 +22,7 @@ import { migrateLegacyConfig, normalizeItems, normalizeDetail } from "./config.j
 import { CARD_STYLES, NOTICE_STYLES } from "./card-styles.js";
 import {
   boostButton,
-  comfortConditionChips,
+  comfortConditionToggle,
   comfortSlider,
   ecoStepper,
   modeSegments,
@@ -143,6 +144,13 @@ export class HeatingControllerCard extends HTMLElement {
     this._callService(domain, "toggle", { entity_id: entityId });
   }
 
+  // Explicit on/off rather than toggle: a segmented An/Aus control must set
+  // the state its label promises, even if clicked while already in it.
+  _setBoolean(entityId, on) {
+    const domain = entityId.split(".")[0];
+    this._callService(domain, on ? "turn_on" : "turn_off", { entity_id: entityId });
+  }
+
   _moreInfo(entityId) {
     this.dispatchEvent(
       new CustomEvent("hass-more-info", {
@@ -165,6 +173,7 @@ export class HeatingControllerCard extends HTMLElement {
       },
       isDragging: () => Boolean(this._dragging),
       toggle: (entityId) => this._toggle(entityId),
+      setBoolean: (entityId, on) => this._setBoolean(entityId, on),
       moreInfo: (entityId) => this._moreInfo(entityId),
     };
   }
@@ -232,6 +241,7 @@ export class HeatingControllerCard extends HTMLElement {
           <ha-icon id="chevron" class="chevron" icon="mdi:chevron-down"></ha-icon>
         </div>
         <div class="values" id="headerValues"></div>
+        <div class="conditions" id="conditions"></div>
         <div class="boost-row" id="boostRow"></div>
         <div class="details" id="details" hidden>
           <div class="section" id="sectionDetails">
@@ -304,6 +314,9 @@ export class HeatingControllerCard extends HTMLElement {
     this._rebuildIf("headerValues", this._headerSignature(roles), () =>
       this._updateHeaderValues(roles)
     );
+    this._rebuildIf("conditions", this._conditionsSignature(roles), () =>
+      this._updateConditions(roles)
+    );
     this._rebuildIf(
       "boost",
       `${roles.mode.state}|${(roles.mode.attributes.options ?? []).join(",")}`,
@@ -372,15 +385,46 @@ export class HeatingControllerCard extends HTMLElement {
     return [
       roles.mode.state,
       (roles.mode.attributes.options ?? []).join(","),
-      roles.automation.state,
-      (roles.automation.attributes.comfort_condition_entities ?? [])
-        .map((id) => `${id}:${this._hass.states[id]?.state}`)
-        .join(","),
       roles.comfort && this._effectiveValue(roles.comfort),
       roles.eco && this._effectiveValue(roles.eco),
       roles.minFlow?.state,
       flow.supply_status,
     ].join("|");
+  }
+
+  // Room-specific comfort conditions, shown in the header (see
+  // _updateConditions) rather than inside the collapsed controls section --
+  // they need to be visible without expanding the card, the same as boost.
+  //
+  // Reconciled with the config the same way detail rows are: config order and
+  // hidden flags win, entries no longer reported by the device drop out,
+  // newly reported ones append at the end.
+  _conditionEntries(roles) {
+    const actualIds = roles.automation.attributes.comfort_condition_entities ?? [];
+    const configured = normalizeItems(this._config[CONDITION_KEY]);
+    const used = new Set();
+    const entries = [];
+
+    for (const entry of configured) {
+      if (!actualIds.includes(entry.entity)) continue;
+      used.add(entry.entity);
+      if (entry.hidden) continue;
+      entries.push(entry);
+    }
+    for (const id of actualIds) {
+      if (!used.has(id)) entries.push({ entity: id });
+    }
+    return entries;
+  }
+
+  _conditionsSignature(roles) {
+    return this._conditionEntries(roles)
+      .map(
+        (e) =>
+          `${e.entity}=${e.icon_on}=${e.icon_off}=${e.label_on}=${e.label_off}=` +
+          this._hass.states[e.entity]?.state
+      )
+      .join("|");
   }
 
   _updateHeaderValues(roles) {
@@ -416,6 +460,16 @@ export class HeatingControllerCard extends HTMLElement {
           icon: item.icon ?? DEVICE_CLASS_ICONS[deviceClass],
         })
       );
+    }
+  }
+
+  _updateConditions(roles) {
+    const container = this.shadowRoot.getElementById("conditions");
+    container.textContent = "";
+    const context = this._controlContext();
+    for (const entry of this._conditionEntries(roles)) {
+      const el = comfortConditionToggle(this._hass, entry, context);
+      if (el) container.appendChild(el);
     }
   }
 
@@ -509,11 +563,6 @@ export class HeatingControllerCard extends HTMLElement {
         selectMode: (option) => this._selectMode(roles, option),
       })
     );
-
-    const conditions = roles.automation.attributes.comfort_condition_entities ?? [];
-    if (conditions.length) {
-      container.appendChild(comfortConditionChips(this._hass, conditions, context));
-    }
 
     const setpoints = document.createElement("div");
     setpoints.className = "setpoints";

@@ -65,6 +65,32 @@ export const CARD_STYLES = `
         }
         .boost-row { padding: 0 16px 12px 16px; }
         .boost-row:empty { display: none; }
+        /* Room-specific comfort conditions (e.g. a desk-plug Homeoffice
+           signal): visible without expanding the card, same as boost. */
+        .conditions {
+          display: flex; flex-direction: column; gap: 8px;
+          padding: 0 16px 12px 16px;
+        }
+        .conditions:empty { display: none; padding: 0; }
+        /* Read-only condition indicator: same tile as a header value, just
+           tinted with the comfort/eco colour so the state is still visible
+           at a glance, without borrowing the segmented/boost control shape
+           that would wrongly suggest it can be tapped to change. */
+        .value.condition-indicator {
+          justify-content: flex-start; gap: 8px;
+          background: color-mix(in srgb, var(--seg) 12%, transparent);
+          border-radius: 8px; margin: 0; padding: 0 8px;
+        }
+        .value.condition-indicator ha-icon {
+          color: var(--seg);
+        }
+        .value.condition-indicator .num { color: var(--seg); }
+        .value.condition-indicator:hover {
+          background: color-mix(in srgb, var(--seg) 22%, transparent);
+        }
+        .value.condition-indicator:active {
+          background: color-mix(in srgb, var(--seg) 32%, transparent);
+        }
         .details { border-top: 1px solid var(--divider-color); }
         .section { padding: 8px 16px 12px 16px; }
         .section[hidden] { display: none; }
@@ -139,27 +165,31 @@ export const CARD_STYLES = `
            no pointer cursor to invite a click that would do nothing. */
         button.chip:disabled { cursor: default; opacity: 1; }
         /* Full width: this is the collapsed card's only direct action, and its
-           colour names what it does, the same as an active mode segment. */
+           colour names what it does, the same as an active mode segment.
+           --seg defaults to boost's own colour, but a read-only condition
+           indicator reuses this exact class with --seg set to comfort/eco --
+           same "single full-width state pill" language, different colour. */
         button.boost {
           display: flex; width: 100%; min-height: 44px;
           align-items: center; justify-content: center; gap: 6px;
-          border: 1px solid var(--hc-boost); border-radius: 12px;
-          background: color-mix(in srgb, var(--hc-boost) 14%, transparent);
-          color: var(--hc-boost); font: inherit; font-size: 0.9rem; font-weight: 500;
+          border: 1px solid var(--seg, var(--hc-boost)); border-radius: 12px;
+          background: color-mix(in srgb, var(--seg, var(--hc-boost)) 14%, transparent);
+          color: var(--seg, var(--hc-boost)); font: inherit; font-size: 0.9rem; font-weight: 500;
           cursor: pointer;
         }
         button.boost ha-icon { --mdc-icon-size: 20px; }
         button.boost:hover {
-          background: color-mix(in srgb, var(--hc-boost) 28%, transparent);
+          background: color-mix(in srgb, var(--seg, var(--hc-boost)) 28%, transparent);
         }
         button.boost:active {
-          background: color-mix(in srgb, var(--hc-boost) 40%, transparent);
+          background: color-mix(in srgb, var(--seg, var(--hc-boost)) 40%, transparent);
         }
         button.boost.active {
+          border-color: transparent;
           background: linear-gradient(
             135deg,
-            color-mix(in srgb, var(--hc-boost) 78%, black) 0%,
-            var(--hc-boost) 100%
+            color-mix(in srgb, var(--seg, var(--hc-boost)) 78%, black) 0%,
+            var(--seg, var(--hc-boost)) 100%
           );
           color: #fff;
         }

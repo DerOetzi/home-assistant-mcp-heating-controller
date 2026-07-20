@@ -66,29 +66,74 @@ export const boostButton = (hass, active, { selectMode }) => {
   return button;
 };
 
-// Room-specific comfort conditions. Writable ones toggle, read-only ones open
-// more-info -- a chip that looks clickable but silently does nothing would be
-// worse than one that explains itself.
-export const comfortConditionChips = (hass, entityIds, { toggle, moreInfo }) => {
+// A room-specific comfort condition (e.g. a desk-plug Homeoffice signal)
+// lives in the header, not tucked inside the controls section -- it needs to
+// be visible without expanding the card, the same as boost. Just the
+// switch/indicator, no heading above it: the editor is where the entity gets
+// identified, the card only shows what it currently is.
+//
+// `entry` is either a bare entity id or an editor-configured object
+// { entity, icon_on, icon_off, label_on, label_off } -- icons/labels fall back
+// to a generic An/Aus when not overridden.
+//
+// Writable conditions (switch/input_boolean) get the full An/Aus segmented
+// control: the user can set either state directly, so both options are shown.
+// Everything else (binary_sensor, schedule, ...) can only be observed, not
+// set, so showing both options would offer a choice that doesn't exist --
+// instead it renders as a single state pill in the same style as the boost
+// button, showing only whichever state currently applies.
+export const comfortConditionToggle = (hass, entry, { setBoolean, moreInfo }) => {
+  const entityId = typeof entry === "string" ? entry : entry.entity;
+  const stateObj = hass.states[entityId];
+  if (!stateObj) return null;
+
+  const domain = entityId.split(".")[0];
+  const writable = domain === "input_boolean" || domain === "switch";
+  const on = isOn(stateObj);
+  const overrides = typeof entry === "string" ? {} : entry;
+  const labelOn = overrides.label_on || t(hass, "condition_on");
+  const labelOff = overrides.label_off || t(hass, "condition_off");
+
+  if (!writable) {
+    // Deliberately NOT the bold pill/segment shape those use: that shape
+    // means "tap here to change something", which isn't true of a
+    // binary_sensor. Reuses the header value tile instead -- the card's
+    // existing language for "read-only, tap for details" -- tinted to still
+    // carry the comfort/eco signal without implying it is a control.
+    const icon = on ? overrides.icon_on : overrides.icon_off;
+    const label = on ? labelOn : labelOff;
+    const el = document.createElement("div");
+    el.className = "value condition-indicator";
+    el.style.setProperty("--seg", on ? "var(--hc-comfort)" : "var(--hc-eco)");
+    el.innerHTML =
+      (icon ? `<ha-icon icon="${icon}"></ha-icon>` : "") +
+      `<span class="num">${label}</span>`;
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      moreInfo(entityId);
+    });
+    return el;
+  }
+
   const row = document.createElement("div");
-  row.className = "modes";
-  for (const entityId of entityIds) {
-    const stateObj = hass.states[entityId];
-    if (!stateObj) continue;
-    const domain = entityId.split(".")[0];
-    const writable = domain === "input_boolean" || domain === "switch";
+  row.className = "segmented condition";
+
+  const segment = (wantsOn, active, seg, icon, label) => {
     const button = document.createElement("button");
-    button.className = `chip${isOn(stateObj) ? " active" : ""}`;
-    button.innerHTML = `<ha-icon icon="${
-      stateObj.attributes.icon ?? "mdi:account-check"
-    }"></ha-icon>${stateObj.attributes.friendly_name ?? entityId}`;
+    button.className = `segment${active ? " active" : ""}`;
+    button.style.setProperty("--seg", seg);
+    button.innerHTML = `${icon ? `<ha-icon icon="${icon}"></ha-icon>` : ""}${label}`;
     button.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      if (writable) toggle(entityId);
-      else moreInfo(entityId);
+      setBoolean(entityId, wantsOn);
     });
-    row.appendChild(button);
-  }
+    return button;
+  };
+
+  row.append(
+    segment(true, on, "var(--hc-comfort)", overrides.icon_on, labelOn),
+    segment(false, !on, "var(--hc-eco)", overrides.icon_off, labelOff)
+  );
   return row;
 };
 

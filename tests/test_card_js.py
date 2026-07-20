@@ -406,6 +406,149 @@ def test_boost_button_selects_boost_when_inactive(ctx) -> None:
     assert _json(ctx, "calls") == ["boost"]
 
 
+_ELEMENT_STUB = """
+var makeElementStub = function () {
+  var el = { disabled: false, textContent: "", innerHTML: "", _class: "", children: [],
+             style: { setProperty: function () {} }, _listeners: {} };
+  Object.defineProperty(el, "className", {
+    get: function () { return this._class; },
+    set: function (v) { this._class = v; },
+  });
+  el.addEventListener = function (type, fn) { this._listeners[type] = fn; };
+  el.appendChild = function (child) { this.children.push(child); return child; };
+  el.append = function () {
+    for (var i = 0; i < arguments.length; i++) this.children.push(arguments[i]);
+  };
+  return el;
+};
+"""
+
+
+def test_comfort_condition_toggle_missing_entity_returns_null(ctx) -> None:
+    ctx.eval(_ELEMENT_STUB)
+    ctx.eval(
+        """
+        var realCreateElement = document.createElement;
+        document.createElement = function () { return makeElementStub(); };
+        var result = comfortConditionToggle(
+          { states: {} }, "switch.missing", { setBoolean: function () {}, moreInfo: function () {} }
+        );
+        document.createElement = realCreateElement;
+        """
+    )
+    assert ctx.eval("result") is None
+
+
+def test_comfort_condition_toggle_writable_sets_explicit_state(ctx) -> None:
+    """A segmented An/Aus control must set the state its label promises, not
+    toggle -- clicking An while already on must still be a no-op-safe 'on'."""
+    ctx.eval(_ELEMENT_STUB)
+    ctx.eval(
+        """
+        var calls = [];
+        var hass = {
+          locale: { language: "en" },
+          states: { "switch.desk": { state: "on", attributes: { friendly_name: "Desk plug" } } },
+        };
+        var realCreateElement = document.createElement;
+        document.createElement = function () { return makeElementStub(); };
+        var row = comfortConditionToggle(hass, "switch.desk", {
+          setBoolean: function (id, on) { calls.push([id, on]); },
+          moreInfo: function () {},
+        });
+        document.createElement = realCreateElement;
+        var onButton = row.children[0];
+        var offButton = row.children[1];
+        """
+    )
+    assert ctx.eval("onButton._class") == "segment active"
+    assert ctx.eval("offButton._class") == "segment"
+    ctx.eval('onButton._listeners.click({ stopPropagation: function () {} });')
+    ctx.eval('offButton._listeners.click({ stopPropagation: function () {} });')
+    assert _json(ctx, "calls") == [["switch.desk", True], ["switch.desk", False]]
+
+
+def test_comfort_condition_toggle_uses_editor_overrides(ctx) -> None:
+    """The editor lets a user override the generic An/Aus label and icon per
+    condition -- those overrides must win over the translated default."""
+    ctx.eval(_ELEMENT_STUB)
+    ctx.eval(
+        """
+        var hass = {
+          locale: { language: "en" },
+          states: { "switch.desk": { state: "off", attributes: {} } },
+        };
+        var realCreateElement = document.createElement;
+        document.createElement = function () { return makeElementStub(); };
+        var row = comfortConditionToggle(
+          hass,
+          {
+            entity: "switch.desk", icon_on: "mdi:briefcase", icon_off: "mdi:home",
+            label_on: "Homeoffice", label_off: "Zuhause",
+          },
+          { setBoolean: function () {}, moreInfo: function () {} }
+        );
+        document.createElement = realCreateElement;
+        """
+    )
+    assert ctx.eval("row.children[0].innerHTML") == '<ha-icon icon="mdi:briefcase"></ha-icon>Homeoffice'
+    assert ctx.eval("row.children[1].innerHTML") == '<ha-icon icon="mdi:home"></ha-icon>Zuhause'
+    # Off is on: the active segment must be the one matching current state.
+    assert ctx.eval("row.children[1]._class") == "segment active"
+
+
+def test_comfort_condition_toggle_read_only_shows_single_active_state(ctx) -> None:
+    """A non-writable condition (e.g. a schedule or template binary_sensor)
+    offers no choice, so it must not render both options -- only whichever
+    state currently applies. Styled as a header-value tile, not the
+    segmented/boost pill shape, so it never reads as something you can tap
+    to change."""
+    ctx.eval(_ELEMENT_STUB)
+    ctx.eval(
+        """
+        var seen = [];
+        var hass = {
+          locale: { language: "en" },
+          states: { "binary_sensor.homeoffice": { state: "on", attributes: {} } },
+        };
+        var realCreateElement = document.createElement;
+        document.createElement = function () { return makeElementStub(); };
+        var el = comfortConditionToggle(hass, "binary_sensor.homeoffice", {
+          setBoolean: function () { throw new Error("must not be called"); },
+          moreInfo: function (id) { seen.push(id); },
+        });
+        document.createElement = realCreateElement;
+        """
+    )
+    assert ctx.eval("el._class") == "value condition-indicator"
+    assert ctx.eval("el.children.length") == 0  # a single element, not a row of segments
+    assert ctx.eval("el.innerHTML") == '<span class="num">On</span>'
+    ctx.eval('el._listeners.click({ stopPropagation: function () {} });')
+    assert _json(ctx, "seen") == ["binary_sensor.homeoffice"]
+
+
+def test_comfort_condition_toggle_read_only_reflects_off_state(ctx) -> None:
+    ctx.eval(_ELEMENT_STUB)
+    ctx.eval(
+        """
+        var hass = {
+          locale: { language: "en" },
+          states: { "binary_sensor.homeoffice": { state: "off", attributes: {} } },
+        };
+        var realCreateElement = document.createElement;
+        document.createElement = function () { return makeElementStub(); };
+        var el = comfortConditionToggle(
+          hass,
+          { entity: "binary_sensor.homeoffice", label_on: "Homeoffice", label_off: "Zuhause",
+            icon_on: "mdi:briefcase", icon_off: "mdi:home" },
+          { setBoolean: function () {}, moreInfo: function () {} }
+        );
+        document.createElement = realCreateElement;
+        """
+    )
+    assert ctx.eval("el.innerHTML") == '<ha-icon icon="mdi:home"></ha-icon><span class="num">Zuhause</span>'
+
+
 def test_boost_button_has_no_click_handler_when_active(ctx) -> None:
     """Active boost has exactly one way out (Entblocken) -- the button itself
     must not offer a second, competing toggle-off."""

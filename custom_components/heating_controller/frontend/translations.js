@@ -38,6 +38,10 @@ export const TRANSLATIONS = {
     // Card — modes
     mode_boost: "Boost",
 
+    // Card — room-specific comfort conditions
+    condition_on: "On",
+    condition_off: "Off",
+
     // Card — error states
     error_pick_device: "Please select a Heating Controller device.",
     error_missing_entities: "This device is missing entities ({missing}).",
@@ -60,6 +64,14 @@ export const TRANSLATIONS = {
     editor_add_entity: "Add entity",
     editor_add_custom_sensor: "Add your own sensor",
     editor_seeded: "Seeded",
+    editor_conditions_heading: "Comfort conditions",
+    editor_conditions_hint:
+      "Room-specific conditions that decide comfort/eco. Sortable and " +
+      "hideable, with an editable icon and label for each state.",
+    editor_label_on: "Label (on)",
+    editor_icon_on: "Icon (on)",
+    editor_label_off: "Label (off)",
+    editor_icon_off: "Icon (off)",
 
     // Card registration
     card_name: "Heating Controller",
@@ -96,6 +108,9 @@ export const TRANSLATIONS = {
 
     mode_boost: "Boost",
 
+    condition_on: "An",
+    condition_off: "Aus",
+
     error_pick_device: "Bitte ein Heating-Controller-Gerät auswählen.",
     error_missing_entities: "Diesem Gerät fehlen Entitäten ({missing}).",
     error_wrong_device: "Ist es ein Heating-Controller-Gerät?",
@@ -115,6 +130,14 @@ export const TRANSLATIONS = {
     editor_add_entity: "Entität hinzufügen",
     editor_add_custom_sensor: "Eigenen Sensor hinzufügen",
     editor_seeded: "Vorbelegt",
+    editor_conditions_heading: "Komfort-Bedingungen",
+    editor_conditions_hint:
+      "Raumspezifische Bedingungen, die über Komfort/Absenk entscheiden. " +
+      "Sortierbar und ausblendbar, mit editierbarem Icon und Label je Zustand.",
+    editor_label_on: "Label (an)",
+    editor_icon_on: "Icon (an)",
+    editor_label_off: "Label (aus)",
+    editor_icon_off: "Icon (aus)",
 
     card_name: "Heating Controller",
     card_description:
