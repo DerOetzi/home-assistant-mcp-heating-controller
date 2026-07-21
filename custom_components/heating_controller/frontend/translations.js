@@ -19,6 +19,7 @@ export const TRANSLATIONS = {
 
     // Card — detail rows
     row_room_sensor: "Sensor",
+    row_room_temp: "Room temperature",
     window_open: "Open",
     window_closed: "Closed",
     row_min_flow: "Minimum flow temperature",
@@ -91,6 +92,7 @@ export const TRANSLATIONS = {
     section_controls: "Heizungssteuerung",
 
     row_room_sensor: "Sensor",
+    row_room_temp: "Raumtemperatur",
     window_open: "Offen",
     window_closed: "Geschlossen",
     row_min_flow: "Mindestvorlauftemperatur",

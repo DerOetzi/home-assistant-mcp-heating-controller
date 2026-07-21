@@ -1,8 +1,23 @@
 // Resolving a heating_controller device into the entities the card renders.
 
-import { DOMAIN, ROLES, ROOM_SENSOR_KEY } from "./const.js";
+import { DOMAIN, ROLES, ROOM_SENSOR_KEY, ROOM_TEMP_KEY, DEVICE_CLASS_ICONS } from "./const.js";
 import { num, localeOf } from "./format.js";
 import { t } from "./translations.js";
+
+// The room-temperature entity as a managed header row. `label` is the
+// editor-list caption ("Room temperature") -- it is never shown on the card
+// itself; the card only shows a caption when the user has set one via `name`.
+export const managedHeaderRows = (hass, roles) => {
+  if (!roles.roomTemp) return [];
+  return [
+    {
+      key: ROOM_TEMP_KEY,
+      entity: roles.roomTemp.entity_id,
+      label: t(hass, "row_room_temp"),
+      icon: DEVICE_CLASS_ICONS.temperature,
+    },
+  ];
+};
 
 // Shared by card and editor so both resolve the controller's entities the
 // same way — by translation_key, never by entity_id pattern.

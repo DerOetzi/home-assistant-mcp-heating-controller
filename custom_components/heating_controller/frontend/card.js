@@ -17,7 +17,7 @@ import {
   REQUIRED_ROLES,
 } from "./const.js";
 import { num, localeOf, isOn } from "./format.js";
-import { resolveRoles, managedDetailRows } from "./entities.js";
+import { resolveRoles, managedDetailRows, managedHeaderRows } from "./entities.js";
 import { migrateLegacyConfig, normalizeItems, normalizeDetail } from "./config.js";
 import { CARD_STYLES, NOTICE_STYLES } from "./card-styles.js";
 import {
@@ -335,13 +335,16 @@ export class HeatingControllerCard extends HTMLElement {
   _valueEl({ entityId, value, unit, label, icon }) {
     const el = document.createElement("div");
     el.className = "value";
-    if (icon) {
-      el.innerHTML = `<ha-icon icon="${icon}"></ha-icon>`;
-    }
-    el.innerHTML += `<span class="num">${value}</span><span class="unit">${unit ?? ""}</span>`;
+    // The label is a caption above the reading (matching the old card's
+    // "Raumtemp." / "Luftfeuchtigkeit" headers) rather than trailing text
+    // after the unit -- it names which room/sensor the value is for, not a
+    // unit-like qualifier of the value itself.
     if (label) {
-      el.innerHTML += `<span class="label">${label}</span>`;
+      el.innerHTML = `<span class="label">${label}</span>`;
     }
+    el.innerHTML += `<div class="value-main">${
+      icon ? `<ha-icon icon="${icon}"></ha-icon>` : ""
+    }<span class="num">${value}</span><span class="unit">${unit ?? ""}</span></div>`;
     if (entityId) {
       el.addEventListener("click", (ev) => {
         ev.stopPropagation();
@@ -349,10 +352,6 @@ export class HeatingControllerCard extends HTMLElement {
       });
     }
     return el;
-  }
-
-  _entityList(key) {
-    return normalizeItems(this._config[key]);
   }
 
   // A block is rebuilt only when its signature changed. The signature has to
@@ -365,13 +364,45 @@ export class HeatingControllerCard extends HTMLElement {
     build();
   }
 
-  _headerSignature(roles) {
-    const parts = [roles.roomTemp?.state];
-    for (const item of this._entityList(HEADER_KEY)) {
-      const stateObj = this._hass.states[item.entity];
-      parts.push(item.entity, item.name, item.icon, stateObj?.state);
+  // The room-temperature entity is a managed header row (see
+  // managedHeaderRows): present and unlabeled by default, but sortable,
+  // hideable and nameable through the same list as any hand-added header
+  // sensor. Config order and hidden flags win, same as detail rows and
+  // comfort conditions; a managed row the config hasn't mentioned yet defaults
+  // to the front, because that's where the primary reading has always been.
+  _headerEntries(roles) {
+    const managed = new Map(
+      managedHeaderRows(this._hass, roles).map((row) => [row.key, row])
+    );
+    const configured = normalizeDetail(this._config[HEADER_KEY]);
+    const used = new Set();
+    const entries = [];
+
+    for (const entry of configured) {
+      if (!entry.key) {
+        entries.push(entry);
+        continue;
+      }
+      const base = managed.get(entry.key);
+      if (!base) continue;
+      used.add(entry.key);
+      if (entry.hidden) continue;
+      entries.push({ entity: base.entity, name: entry.name, icon: entry.icon ?? base.icon });
     }
-    return parts.join("|");
+    for (const [key, base] of [...managed].reverse()) {
+      if (used.has(key)) continue;
+      entries.unshift({ entity: base.entity, icon: base.icon });
+    }
+    return entries;
+  }
+
+  _headerSignature(roles) {
+    return this._headerEntries(roles)
+      .map(
+        (e) =>
+          `${e.entity}=${e.name}=${e.icon}=${this._hass.states[e.entity]?.state}`
+      )
+      .join("|");
   }
 
   _detailSignature(roles) {
@@ -431,16 +462,7 @@ export class HeatingControllerCard extends HTMLElement {
     const container = this.shadowRoot.getElementById("headerValues");
     container.textContent = "";
 
-    container.appendChild(
-      this._valueEl({
-        entityId: roles.roomTemp?.entity_id,
-        value: num(roles.roomTemp?.state, 1, localeOf(this._hass)),
-        unit: "°C",
-        icon: DEVICE_CLASS_ICONS.temperature,
-      })
-    );
-
-    for (const item of this._entityList(HEADER_KEY)) {
+    for (const item of this._headerEntries(roles)) {
       const stateObj = this._hass.states[item.entity];
       if (!stateObj) continue;
       const deviceClass = stateObj.attributes.device_class;

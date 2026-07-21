@@ -46,14 +46,17 @@ export const CARD_STYLES = `
           padding: 0 16px 8px 16px;
         }
         .value {
-          display: flex; align-items: center; justify-content: center;
-          gap: 3px; cursor: pointer; min-width: 0;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: 1px; cursor: pointer; min-width: 0;
           /* Same 44px touch target as the detail rows. */
           min-height: 44px; padding: 0 6px; margin: 0 -6px;
           border-radius: 8px; -webkit-tap-highlight-color: transparent;
         }
         .value:hover { background: var(--secondary-background-color); }
         .value:active { background: var(--divider-color); }
+        .value-main {
+          display: flex; align-items: center; justify-content: center; gap: 3px; min-width: 0;
+        }
         .value ha-icon {
           --mdc-icon-size: 18px; flex: none;
           color: var(--secondary-text-color);

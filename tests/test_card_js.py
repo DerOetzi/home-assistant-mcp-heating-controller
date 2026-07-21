@@ -314,6 +314,37 @@ def test_managed_rows_follow_the_language(ctx) -> None:
     ctx.eval('hass.locale.language = "en";')
 
 
+def test_managed_header_rows_seed_the_room_temperature(ctx) -> None:
+    # The room-temperature entity is a managed header row: present with the
+    # room's actual entity/icon, but no on-card label of its own (that comes
+    # only from a config override) -- `label` here is purely the editor
+    # list's own caption, never rendered on the card.
+    ctx.eval(_HASS_FIXTURE)
+    rows = _json(ctx, "managedHeaderRows(hass, roles)")
+    assert rows == [
+        {
+            "key": "room_temp",
+            "entity": "sensor.katharina_raumtemperatur",
+            "label": "Room temperature",
+            "icon": "mdi:thermometer",
+        }
+    ]
+
+
+def test_managed_header_rows_empty_without_a_room_temp_role(ctx) -> None:
+    ctx.eval(_HASS_FIXTURE)
+    ctx.eval("var noRoomTemp = {};")
+    assert _json(ctx, "managedHeaderRows(hass, noRoomTemp)") == []
+
+
+def test_managed_header_rows_follow_the_language(ctx) -> None:
+    ctx.eval(_HASS_FIXTURE)
+    ctx.eval('hass.locale.language = "de";')
+    rows = _json(ctx, "managedHeaderRows(hass, roles)")
+    assert rows[0]["label"] == "Raumtemperatur"
+    ctx.eval('hass.locale.language = "en";')
+
+
 # ---------------------------------------------------------------------------
 # Supply status presentation
 # ---------------------------------------------------------------------------

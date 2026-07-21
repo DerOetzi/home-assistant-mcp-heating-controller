@@ -55,3 +55,9 @@ export const CONDITION_KEY = "comfort_conditions";
 // Identifies the auto-populated detail rows. TRVs and windows append their
 // entity id; the room sensor is a singleton.
 export const ROOM_SENSOR_KEY = "room_sensor";
+
+// Identifies the room-temperature entity as a managed header row -- present
+// by default (leading, unlabeled), but sortable/hideable/nameable through the
+// same header_entities list as any other header sensor, the same way
+// ROOM_SENSOR_KEY is a managed row in detail_entities.
+export const ROOM_TEMP_KEY = "room_temp";

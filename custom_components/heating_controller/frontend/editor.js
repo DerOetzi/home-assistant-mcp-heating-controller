@@ -7,7 +7,7 @@ import {
   DETAIL_KEY,
   ROOM_SENSOR_KEY,
 } from "./const.js";
-import { resolveRoles, managedDetailRows } from "./entities.js";
+import { resolveRoles, managedDetailRows, managedHeaderRows } from "./entities.js";
 import {
   migrateLegacyConfig,
   normalizeItems,
@@ -77,19 +77,17 @@ export class HeatingControllerCardEditor extends HTMLElement {
     else this._propagateHass();
   }
 
-  _items(key) {
-    return normalizeItems(this._config[key]);
-  }
-
   _emit(config) {
     if (!config.title) delete config.title;
-    // Header is custom-only: compact bare entries to plain strings. Normalize
-    // first, or mapping over an already-compacted string would read .entity
-    // off it — undefined — and wipe every entry without a name or icon.
-    const header = normalizeItems(config[HEADER_KEY]);
+    // Custom header entries compact to plain strings when they carry no
+    // name/icon; a managed row (has .key, e.g. the room-temperature entity)
+    // is never compacted -- it has no .entity to fall back to and would
+    // otherwise be wiped. Normalize first, or mapping over an
+    // already-compacted string would read .entity off it — undefined.
+    const header = normalizeDetail(config[HEADER_KEY]);
     if (header.length) {
       config[HEADER_KEY] = header.map((item) =>
-        !item.name && !item.icon ? item.entity : item
+        !item.key && !item.name && !item.icon ? item.entity : item
       );
     } else {
       delete config[HEADER_KEY];
@@ -110,8 +108,92 @@ export class HeatingControllerCardEditor extends HTMLElement {
     this._render();
   }
 
-  _setList(key, items) {
-    this._emit({ ...this._config, [key]: items });
+  // The room-temperature entity is a managed row, reconciled the same way
+  // detail rows are: config order and hidden flags win. Unlike TRVs/windows,
+  // a managed row absent from config defaults to the *front* rather than the
+  // end -- that's where the room's primary reading has always been shown.
+  _headerEditorItems() {
+    const roles = resolveRoles(this._hass, this._config.device);
+    const managed = new Map(
+      managedHeaderRows(this._hass, roles).map((row) => [row.key, row])
+    );
+    const items = [];
+    const used = new Set();
+
+    for (const entry of normalizeDetail(this._config[HEADER_KEY])) {
+      if (entry.key) {
+        const base = managed.get(entry.key);
+        if (!base) continue;
+        used.add(entry.key);
+        items.push({
+          managed: true,
+          key: entry.key,
+          entity: base.entity,
+          label: base.label,
+          defaultIcon: base.icon,
+          name: entry.name,
+          icon: entry.icon,
+          hidden: Boolean(entry.hidden),
+        });
+      } else {
+        const stateObj = this._hass.states[entry.entity];
+        items.push({
+          managed: false,
+          entity: entry.entity,
+          label: stateObj?.attributes?.friendly_name ?? entry.entity,
+          name: entry.name,
+          icon: entry.icon,
+          hidden: false,
+        });
+      }
+    }
+    for (const [key, base] of [...managed].reverse()) {
+      if (used.has(key)) continue;
+      items.unshift({
+        managed: true,
+        key,
+        entity: base.entity,
+        label: base.label,
+        defaultIcon: base.icon,
+        hidden: false,
+      });
+    }
+    return items;
+  }
+
+  _setHeader(items) {
+    // A managed row still in its default slot -- first, untouched -- needs
+    // nothing persisted: the card puts it there for free. Once it is renamed,
+    // hidden, or moved elsewhere, it needs an explicit entry so the card
+    // doesn't just snap it back to the front.
+    const defaultFirst =
+      items.length &&
+      items[0].managed &&
+      !items[0].name &&
+      !items[0].icon &&
+      !items[0].hidden;
+
+    const serialized = [];
+    items.forEach((item, index) => {
+      if (item.managed) {
+        if (index === 0 && defaultFirst) return;
+        const entry = { key: item.key };
+        if (item.name) entry.name = item.name;
+        if (item.icon && item.icon !== item.defaultIcon) entry.icon = item.icon;
+        if (item.hidden) entry.hidden = true;
+        serialized.push(entry);
+        return;
+      }
+      const entry = { entity: item.entity };
+      if (item.name) entry.name = item.name;
+      if (item.icon) entry.icon = item.icon;
+      serialized.push(entry);
+    });
+
+    const config = { ...this._config };
+    if (serialized.length) config[HEADER_KEY] = serialized;
+    else delete config[HEADER_KEY];
+    this._emit(config);
   }
 
   // The seeded rows reconciled with config: config order wins, hidden and
@@ -313,9 +395,12 @@ export class HeatingControllerCardEditor extends HTMLElement {
       if (!value.icon) delete value.icon;
 
       if (list === "header") {
-        const next = this._items(HEADER_KEY);
-        next[index] = value;
-        this._setList(HEADER_KEY, next);
+        const next = this._headerEditorItems();
+        const item = next[index];
+        item.name = value.name;
+        item.icon = value.icon;
+        if (!item.managed && value.entity) item.entity = value.entity;
+        this._setHeader(next);
       } else if (list === "condition") {
         const next = this._conditionEditorItems();
         const item = next[index];
@@ -358,6 +443,7 @@ export class HeatingControllerCardEditor extends HTMLElement {
       this._config[DETAIL_KEY] ?? null,
       this._config[CONDITION_KEY] ?? null,
       managedDetailRows(this._hass, roles).map((row) => row.key),
+      managedHeaderRows(this._hass, roles).map((row) => row.key),
       roles.automation?.attributes?.comfort_condition_entities ?? null,
     ]);
     const lists = this.shadowRoot.getElementById("lists");
@@ -365,13 +451,7 @@ export class HeatingControllerCardEditor extends HTMLElement {
     this._listsSignature = signature;
 
     lists.textContent = "";
-    lists.appendChild(
-      this._buildListSection({
-        key: HEADER_KEY,
-        heading: t(this._hass, "editor_header_heading"),
-        hint: t(this._hass, "editor_header_hint"),
-      })
-    );
+    lists.appendChild(this._buildHeaderSection());
     lists.appendChild(this._buildDetailSection());
     // Only shown when the room actually has one -- most rooms don't, and an
     // empty list with nothing to sort or hide would just be noise.
@@ -535,16 +615,16 @@ export class HeatingControllerCardEditor extends HTMLElement {
     return row;
   }
 
-  _buildListSection({ key, heading, hint }) {
+  _buildHeaderSection() {
     const section = document.createElement("div");
     section.className = "list-section";
     section.innerHTML =
-      `<div class="heading">${heading}</div><div class="hint">${hint}</div>`;
+      `<div class="heading">${t(this._hass, "editor_header_heading")}</div>` +
+      `<div class="hint">${t(this._hass, "editor_header_hint")}</div>`;
 
-    const items = this._items(key);
     const container = document.createElement("div");
-    items.forEach((item, index) =>
-      container.appendChild(this._buildRow(key, item, index))
+    this._headerEditorItems().forEach((item, index) =>
+      container.appendChild(this._buildHeaderRow(item, index))
     );
 
     // ha-sortable is the same drag-and-drop wrapper Home Assistant's own
@@ -554,9 +634,9 @@ export class HeatingControllerCardEditor extends HTMLElement {
     sortable.addEventListener("item-moved", (ev) => {
       ev.stopPropagation();
       const { oldIndex, newIndex } = ev.detail;
-      const next = this._items(key);
+      const next = this._headerEditorItems();
       next.splice(newIndex, 0, ...next.splice(oldIndex, 1));
-      this._setList(key, next);
+      this._setHeader(next);
     });
     sortable.appendChild(container);
     section.appendChild(sortable);
@@ -571,17 +651,23 @@ export class HeatingControllerCardEditor extends HTMLElement {
       const entityId = ev.detail.value;
       if (!entityId) return;
       ev.target.value = "";
-      this._setList(key, [...this._items(key), { entity: entityId }]);
+      this._setHeader([
+        ...this._headerEditorItems(),
+        { managed: false, entity: entityId },
+      ]);
     });
     section.appendChild(adder);
 
     return section;
   }
 
-  _buildRow(key, item, index) {
-    const stateObj = this._hass.states[item.entity];
+  // Same shape as _buildDetailRow: a managed row (the room-temperature
+  // entity) can only be hidden/renamed, never deleted or re-pointed at a
+  // different entity; hand-added header sensors are fully free.
+  _buildHeaderRow(item, index) {
     const row = document.createElement("div");
     row.className = "row";
+    if (item.hidden) row.style.opacity = "0.5";
 
     const handle = document.createElement("ha-icon");
     handle.className = "handle";
@@ -590,19 +676,32 @@ export class HeatingControllerCardEditor extends HTMLElement {
 
     const info = document.createElement("div");
     info.className = "info";
-    const primary = item.name || stateObj?.attributes?.friendly_name || item.entity;
+    const primary =
+      item.name || (item.managed ? item.label : null) ||
+      this._hass.states[item.entity]?.attributes?.friendly_name ||
+      item.entity;
     info.innerHTML =
       `<div class="primary">${primary}</div>` +
       `<div class="secondary">${item.entity}</div>`;
     row.appendChild(info);
 
-    row.appendChild(
-      this._iconButton("mdi:close", () => {
-        const next = this._items(key);
-        next.splice(index, 1);
-        this._setList(key, next);
-      })
-    );
+    if (item.managed) {
+      row.appendChild(
+        this._iconButton(item.hidden ? "mdi:eye-off" : "mdi:eye", () => {
+          const next = this._headerEditorItems();
+          next[index].hidden = !next[index].hidden;
+          this._setHeader(next);
+        })
+      );
+    } else {
+      row.appendChild(
+        this._iconButton("mdi:close", () => {
+          const next = this._headerEditorItems();
+          next.splice(index, 1);
+          this._setHeader(next);
+        })
+      );
+    }
     row.appendChild(
       this._iconButton("mdi:pencil", () => {
         this._edit = { list: "header", index };
@@ -625,7 +724,7 @@ export class HeatingControllerCardEditor extends HTMLElement {
     const { list, index } = this._edit;
     const items =
       list === "header"
-        ? this._items(HEADER_KEY)
+        ? this._headerEditorItems()
         : list === "condition"
         ? this._conditionEditorItems()
         : this._detailEditorItems();
@@ -647,10 +746,11 @@ export class HeatingControllerCardEditor extends HTMLElement {
     this.shadowRoot.getElementById("detailLabel").textContent =
       `${index + 1} / ${items.length} \u00b7 ${heading}`;
 
-    // Managed detail rows and comfort conditions both have a fixed entity: it
-    // is shown read-only above the form so you can see what you are editing,
-    // but only the fields the form actually exposes are editable.
-    const managed = list === "detail" && item.managed;
+    // Managed detail/header rows and comfort conditions all have a fixed
+    // entity: it is shown read-only above the form so you can see what you
+    // are editing, but only the fields the form actually exposes are
+    // editable.
+    const managed = (list === "detail" || list === "header") && item.managed;
     this._renderReadonlyEntity(managed || list === "condition" ? item : null);
 
     const form = this.shadowRoot.getElementById("itemForm");
