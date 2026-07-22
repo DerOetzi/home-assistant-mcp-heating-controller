@@ -1,9 +1,19 @@
+import pytest
+
 from heating_controller.const import (
     DesignTemperatureSystem,
     HeatEmitterType,
     PanelRadiatorType,
 )
-from heating_controller.controller.mpc.models.emitter import HeatEmitterModel
+from heating_controller.controller.mpc.math_helper import round_to_step
+from heating_controller.controller.mpc.models.emitter import (
+    HEIGHT_SCALING_EXPONENT,
+    MAX_RADIATOR_HEIGHT_MM,
+    MIN_RADIATOR_HEIGHT_MM,
+    PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER,
+    REFERENCE_HEIGHT_MM,
+    HeatEmitterModel,
+)
 from heating_controller.controller.mpc.types import RoomThermalConfig, TrvConfig
 
 
@@ -11,6 +21,34 @@ def make_model(trvs, design_temperature_system=DesignTemperatureSystem.SYSTEM_55
     return HeatEmitterModel(
         RoomThermalConfig(design_temperature_system=design_temperature_system), trvs
     )
+
+
+def _expected_power_per_meter(radiator_type, height_mm):
+    clamped_height_mm = min(
+        max(height_mm, MIN_RADIATOR_HEIGHT_MM), MAX_RADIATOR_HEIGHT_MM
+    )
+    return PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[radiator_type] * (
+        clamped_height_mm / REFERENCE_HEIGHT_MM
+    ) ** HEIGHT_SCALING_EXPONENT
+
+
+def _available_power_at_design_delta(radiator_type, width_mm, height_mm):
+    # At the 75/65 system the design/reference overtemperature ratio is 1, so a
+    # room 50 K below the design mean temperature (70 - 20 = 50) sees the raw
+    # table power per meter directly, with no temperature-exponent scaling to
+    # account for.
+    model = make_model(
+        [
+            TrvConfig(
+                name="trv1",
+                radiator_type=radiator_type,
+                width_mm=width_mm,
+                height_mm=height_mm,
+            )
+        ],
+        design_temperature_system=DesignTemperatureSystem.SYSTEM_75_65,
+    )
+    return model.calculate_available_heating_power_w(20)
 
 
 def test_available_power_is_zero_when_room_at_or_above_mean_temperature():
@@ -102,3 +140,34 @@ def test_forward_direction_keeps_design_spread():
     assert model.calculate_available_heating_power_w(
         20, 45
     ) == model.calculate_available_heating_power_w(20, 45, 10.0)
+
+
+def test_panel_radiator_at_reference_height_matches_the_table_value():
+    # No scaling should apply at exactly REFERENCE_HEIGHT_MM.
+    power = _available_power_at_design_delta(PanelRadiatorType.TYPE_10, 1000, 600)
+    assert power == PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[PanelRadiatorType.TYPE_10]
+
+
+@pytest.mark.parametrize("height_mm", [300, 450, 900])
+def test_panel_radiator_height_scaling_follows_the_power_law(height_mm):
+    power = _available_power_at_design_delta(PanelRadiatorType.TYPE_22, 1000, height_mm)
+    expected = round_to_step(
+        _expected_power_per_meter(PanelRadiatorType.TYPE_22, height_mm), 0.01
+    )
+    assert power == expected
+
+
+def test_panel_radiator_height_below_minimum_is_clamped():
+    power = _available_power_at_design_delta(PanelRadiatorType.TYPE_22, 1000, 50)
+    expected = round_to_step(
+        _expected_power_per_meter(PanelRadiatorType.TYPE_22, MIN_RADIATOR_HEIGHT_MM), 0.01
+    )
+    assert power == expected
+
+
+def test_panel_radiator_height_above_maximum_is_clamped():
+    power = _available_power_at_design_delta(PanelRadiatorType.TYPE_22, 1000, 3000)
+    expected = round_to_step(
+        _expected_power_per_meter(PanelRadiatorType.TYPE_22, MAX_RADIATOR_HEIGHT_MM), 0.01
+    )
+    assert power == expected

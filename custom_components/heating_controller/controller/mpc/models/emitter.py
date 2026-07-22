@@ -8,38 +8,29 @@ from ..math_helper import clamp, round_to_step
 from ..types import RoomThermalConfig, TrvConfig
 
 RADIATOR_EXPONENTS: dict[PanelRadiatorType, float] = {
-    PanelRadiatorType.TYPE_10: 1.2,
-    PanelRadiatorType.TYPE_11: 1.25,
+    PanelRadiatorType.TYPE_10: 1.25,
+    PanelRadiatorType.TYPE_11: 1.3,
     PanelRadiatorType.TYPE_21: 1.3,
-    PanelRadiatorType.TYPE_22: 1.35,
-    PanelRadiatorType.TYPE_33: 1.4,
+    PanelRadiatorType.TYPE_22: 1.3,
+    PanelRadiatorType.TYPE_33: 1.35,
 }
 
 DEFAULT_EMITTER_EXPONENT = 1.3
 
-PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER: dict[int, dict[PanelRadiatorType, float]] = {
-    300: {
-        PanelRadiatorType.TYPE_10: 376,
-        PanelRadiatorType.TYPE_11: 528,
-        PanelRadiatorType.TYPE_21: 732,
-        PanelRadiatorType.TYPE_22: 1013,
-        PanelRadiatorType.TYPE_33: 1446,
-    },
-    600: {
-        PanelRadiatorType.TYPE_10: 668,
-        PanelRadiatorType.TYPE_11: 968,
-        PanelRadiatorType.TYPE_21: 1302,
-        PanelRadiatorType.TYPE_22: 1688,
-        PanelRadiatorType.TYPE_33: 2410,
-    },
-    900: {
-        PanelRadiatorType.TYPE_10: 1002,
-        PanelRadiatorType.TYPE_11: 1408,
-        PanelRadiatorType.TYPE_21: 1954,
-        PanelRadiatorType.TYPE_22: 2617,
-        PanelRadiatorType.TYPE_33: 3614,
-    },
+REFERENCE_HEIGHT_MM = 600
+
+PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER: dict[PanelRadiatorType, float] = {
+    PanelRadiatorType.TYPE_10: 500,
+    PanelRadiatorType.TYPE_11: 1000,
+    PanelRadiatorType.TYPE_21: 1300,
+    PanelRadiatorType.TYPE_22: 1700,
+    PanelRadiatorType.TYPE_33: 2400,
 }
+
+HEIGHT_SCALING_EXPONENT = 0.8
+
+MIN_RADIATOR_HEIGHT_MM = 150
+MAX_RADIATOR_HEIGHT_MM = 1800
 
 MIN_ACTIVE_TRV_TEMPERATURE_C = 18.0
 MIN_ACTIVE_DEMAND = 0.05
@@ -113,43 +104,22 @@ class HeatEmitterModel:
     def _calculate_panel_radiator_table_reference_power_w(self, trv: TrvConfig) -> float:
         if trv.height_mm is None or trv.width_mm is None or trv.radiator_type is None:
             return 0
-        interpolated_power_per_meter = self._interpolate_panel_radiator_power_per_meter(
+        scaled_power_per_meter = self._scale_panel_radiator_power_per_meter(
             trv.height_mm, trv.radiator_type
         )
-        return round_to_step(interpolated_power_per_meter * (trv.width_mm / 1000), 0.01)
+        return round_to_step(scaled_power_per_meter * (trv.width_mm / 1000), 0.01)
 
     @staticmethod
-    def _interpolate_panel_radiator_power_per_meter(
+    def _scale_panel_radiator_power_per_meter(
         height_mm: float, radiator_type: PanelRadiatorType
     ) -> float:
-        available_heights = sorted(PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER.keys())
-
-        if height_mm <= available_heights[0]:
-            return PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[
-                available_heights[0]
-            ].get(radiator_type, 0)
-
-        if height_mm >= available_heights[-1]:
-            return PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[
-                available_heights[-1]
-            ].get(radiator_type, 0)
-
-        for lower_height, upper_height in zip(
-            available_heights, available_heights[1:]
-        ):
-            if lower_height <= height_mm <= upper_height:
-                lower_power = PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[
-                    lower_height
-                ].get(radiator_type, 0)
-                upper_power = PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER[
-                    upper_height
-                ].get(radiator_type, 0)
-                interpolation_factor = (height_mm - lower_height) / (
-                    upper_height - lower_height
-                )
-                return lower_power + (upper_power - lower_power) * interpolation_factor
-
-        return 0
+        reference_power = PANEL_RADIATOR_REFERENCE_POWER_W_PER_METER.get(radiator_type, 0)
+        clamped_height_mm = clamp(
+            height_mm, MIN_RADIATOR_HEIGHT_MM, MAX_RADIATOR_HEIGHT_MM
+        )
+        return reference_power * (
+            clamped_height_mm / REFERENCE_HEIGHT_MM
+        ) ** HEIGHT_SCALING_EXPONENT
 
     def _convert_reference_power_to_design_system(
         self, table_reference_power_w: float, exponent: float
